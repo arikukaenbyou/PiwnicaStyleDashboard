@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+config.toml
+*.csv
+/pkg/
+/src/
+*.pkg.tar.*
+*.tar.gz

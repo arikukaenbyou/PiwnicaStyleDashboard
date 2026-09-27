@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=PiwnicaStyleDashboard
+Comment=Animated PCB desktop layer with a system dashboard
+Exec=piwnica-dashboard run
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

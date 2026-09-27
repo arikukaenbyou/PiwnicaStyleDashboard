@@ -1,0 +1,29 @@
+# Maintainer: ariku <43666329+arikukaenbyou@users.noreply.github.com>
+pkgname=piwnica-dashboard
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Animated PCB desktop layer with a system dashboard (X11, compositing WM)'
+arch=('any')
+url='https://github.com/arikukaenbyou/PiwnicaStyleDashboard'
+license=('MIT')
+depends=('python' 'python-gobject' 'python-cairo' 'python-numpy' 'gtk3' 'xorg-xprop' 'util-linux')
+optdepends=('ttf-jetbrains-mono: panel font'
+            'xfconf: holdout lookup next to the XFCE wallpaper'
+            'nvidia-utils: NVIDIA GPU load and temperature')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+check() {
+    cd "PiwnicaStyleDashboard-$pkgver"
+    python -m unittest discover -s tests -t .
+}
+
+package() {
+    cd "PiwnicaStyleDashboard-$pkgver"
+    install -d "$pkgdir/usr/share/piwnica-dashboard"
+    cp -r piwnica_dashboard "$pkgdir/usr/share/piwnica-dashboard/"
+    install -Dm755 packaging/piwnica-dashboard "$pkgdir/usr/bin/piwnica-dashboard"
+    install -Dm644 packaging/piwnica-dashboard.desktop "$pkgdir/etc/xdg/autostart/piwnica-dashboard.desktop"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

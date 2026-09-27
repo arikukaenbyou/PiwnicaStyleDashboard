@@ -1,0 +1,14 @@
+# For sessions that start graphical-session.target (GNOME, KDE, some WMs). XFCE does not by
+# default -- there install.sh uses the XDG autostart entry instead.
+[Unit]
+Description=PiwnicaStyleDashboard (animated PCB desktop layer with a system dashboard)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/piwnica-dashboard run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

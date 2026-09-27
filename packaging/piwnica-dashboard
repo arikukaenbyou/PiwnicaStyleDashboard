@@ -1,0 +1,7 @@
+#!/bin/sh
+# Launcher: finds the package next to an install prefix (PKGBUILD: /usr, install.sh: ~/.local).
+for d in "${PIWNICA_HOME:-}" "$HOME/.local/share/piwnica-dashboard" /usr/share/piwnica-dashboard; do
+    [ -n "$d" ] && [ -d "$d/piwnica_dashboard" ] && exec env PYTHONPATH="$d${PYTHONPATH:+:$PYTHONPATH}" /usr/bin/python3 -m piwnica_dashboard "$@"
+done
+echo "piwnica-dashboard: package not found (reinstall)" >&2
+exit 1

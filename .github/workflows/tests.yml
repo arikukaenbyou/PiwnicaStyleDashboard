@@ -1,0 +1,14 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Dependencies
+        run: pacman -Syu --noconfirm --needed python python-numpy python-cairo git
+      - uses: actions/checkout@v4
+      - name: Unit tests (fake /proc and /sys, no display)
+        run: python -m unittest discover -s tests -t . -v
+      - name: Render a demo frame
+        run: python -m piwnica_dashboard screenshot --demo --holdout examples/orin/holdout-1200x1920.png /tmp/frame.png
