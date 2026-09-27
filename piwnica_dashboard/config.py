@@ -9,7 +9,8 @@ import subprocess
 import tomllib
 
 DEFAULTS = {
-    'display': {'monitor': 'auto', 'traces_on_other_monitors': True, 'tint': 0.45, 'fps': 30},
+    'display': {'monitor': 'auto', 'traces_on_other_monitors': True, 'tint': 0.45, 'fps': 30,
+                'dashboard_in_games': True},
     'holdout': {'path': 'auto'},
     'network': {'interface': 'auto'},
     'gpu': {'backend': 'auto'},
@@ -29,6 +30,9 @@ traces_on_other_monitors = true
 # Darkening of the wallpaper under the traces, 0..1.
 tint = 0.45
 fps = 30
+# While a game runs (or a fullscreen window has focus) the traces on the other monitors
+# switch off; the dashboard monitor keeps running -- set to false to switch it off too.
+dashboard_in_games = true
 
 [holdout]
 # Mask that keeps the animation and the panels off a character on the wallpaper:

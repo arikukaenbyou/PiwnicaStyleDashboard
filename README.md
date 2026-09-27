@@ -26,8 +26,9 @@ and **keeps off the character on your wallpaper** (holdout mask).
   touch that area; the panels are placed in the free space around the character, or skipped if there is none.
 - **Cheap**: only changed areas are repainted (~30 fps), rendered client-side so the X server only copies
   them; data is sampled once per second, slow sensors every 5 s. About 20 % of one CPU core for three
-  monitors with the dashboard (plus ~4 % in Xorg). **Switches off while a game runs** (Steam/Proton, Lutris,
-  Heroic/Wine, gamescope -- even windowed or alt-tabbed) or a fullscreen window (video) has focus.
+  monitors with the dashboard (plus ~4 % in Xorg). **While a game runs** (Steam/Proton, Lutris, Heroic/Wine,
+  gamescope -- even windowed or alt-tabbed) or a fullscreen window has focus, the traces on the other monitors
+  switch off and the **dashboard keeps running**, to watch the game's load (`dashboard_in_games = false` to stop it too).
 - **Click-through**, in the "below" window layer: desktop icons and the desktop menu keep working.
 
 ## Requirements
@@ -99,7 +100,7 @@ kliknięcia i omija postać na tapecie (maska holdout).
   limitu. Limity pochodzą ze sprzętu albo ze specyfikacji producenta i można je nadpisać w configu.
 - **Instalacja:** `./install.sh` bez sudo (zależności wypisze do `sudo pacman -S …`).
   Diagnostyka: `piwnica-dashboard detect`. Konfiguracja: `~/.config/piwnica-dashboard/config.toml`.
-- **Gry:** gdy działa gra (Steam/Proton, Lutris, Heroic/Wine, gamescope), efekt się wyłącza, także
-  w oknie i po Alt+Tab.
+- **Gry:** gdy działa gra (Steam/Proton, Lutris, Heroic/Wine, gamescope), także w oknie i po Alt+Tab,
+  animacja na pozostałych monitorach się wyłącza, a dashboard działa dalej (`dashboard_in_games = false`, żeby też gasł).
 - **Maska postaci:** PNG w rozmiarze monitora, gdzie alfa > 0 oznacza postać. Plik
   `holdout-<szer>x<wys>.png` obok tapety XFCE jest wykrywany sam. Przykład jest w `examples/orin/`.

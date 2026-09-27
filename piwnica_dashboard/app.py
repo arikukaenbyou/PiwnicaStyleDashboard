@@ -123,6 +123,7 @@ class App:
                   + (f', panels: {scene.dash.rects}' if scene.dash else ''), flush=True)
             self.boards.append(Board(m, scene))
         self.paused = False
+        self.dashboard_in_games = bool(disp.get('dashboard_in_games', True))
         fps = max(5, min(60, int(disp.get('fps', 30))))
         GLib.timeout_add(1000 // fps, self.tick)
         GLib.timeout_add(1000, self.dash_tick)
@@ -131,30 +132,35 @@ class App:
         for s in (signal.SIGTERM, signal.SIGINT):
             GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, s, self.quit)
 
+    def live(self):
+        return [b for b in self.boards if not self.paused or (b.scene.dash is not None and self.dashboard_in_games)]
+
     def tick(self):
-        if not self.paused:
-            for b in self.boards:
-                b.invalidate(b.scene.tick())
+        for b in self.live():
+            b.invalidate(b.scene.tick())
         return True
 
     def dash_tick(self):
-        if not self.paused:
-            for b in self.boards:
-                try:
-                    b.invalidate(b.scene.dash_tick())
-                except Exception as e:  # noqa: BLE001 -- one bad sample must not stop the refresh
-                    print(f'{TITLE}: sample failed: {e}', flush=True)
+        for b in self.live():
+            try:
+                b.invalidate(b.scene.dash_tick())
+            except Exception as e:  # noqa: BLE001 -- one bad sample must not stop the refresh
+                print(f'{TITLE}: sample failed: {e}', flush=True)
         return True
 
     def check_fullscreen(self):
+        """A game or a fullscreen window switches the traces off; the dashboard monitor keeps
+        running (display.dashboard_in_games) -- it is there to watch the game's load."""
         fs = game_running() or is_fullscreen_focused()
-        if fs and not self.paused:
-            self.paused = True
-            for b in self.boards:
+        if fs == self.paused:
+            return True
+        self.paused = fs
+        for b in self.boards:
+            if b.scene.dash is not None and self.dashboard_in_games:
+                continue
+            if fs:
                 b.hide()
-        elif not fs and self.paused:
-            self.paused = False
-            for b in self.boards:
+            else:
                 b.show_all()
                 b.click_through()
         return True
