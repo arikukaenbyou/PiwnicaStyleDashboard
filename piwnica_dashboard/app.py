@@ -1,6 +1,6 @@
 """GTK side: one transparent window per monitor in the "below" layer (above the wallpaper
-and desktop icons, under every normal window), click-through, paused while a fullscreen
-window (a game, a video) has focus.
+and desktop icons, under every normal window), click-through, switched off while a game runs
+(see games.py) or a fullscreen window (a video) has focus.
 
 Click-through detail that matters: the empty input shape is set on the *widget*
 (GTK keeps it and re-applies it on map/size-allocate) and re-applied after every show.
@@ -19,6 +19,7 @@ from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 from . import config as config_mod  # noqa: E402
 from .collector import Collector  # noqa: E402
+from .games import game_running  # noqa: E402
 from .scene import Scene, load_holdout  # noqa: E402
 
 TITLE = 'piwnica-dashboard'
@@ -71,9 +72,26 @@ class Board(Gtk.Window):
         self.input_shape_combine_region(cairo.Region())
         for sig in ('realize', 'map-event', 'size-allocate'):
             self.connect(sig, self.click_through)
-        self.connect('draw', lambda _w, cr: self.scene.draw(cr) or False)
+        # frames are rendered here, in a client-side image, and only the changed rectangles go to
+        # the window: drawn straight on the window, the gradients and strokes are rasterised
+        # by the X server itself, which cost Xorg ~3x more CPU than the whole dashboard
+        self.back = cairo.ImageSurface(cairo.FORMAT_ARGB32, mon['w'], mon['h'])
+        self.connect('draw', self.on_draw)
         self.show_all()
         self.click_through()
+
+    def on_draw(self, _w, cr):
+        rects = cr.copy_clip_rectangle_list()
+        bcr = cairo.Context(self.back)
+        for r in rects:
+            bcr.rectangle(r.x, r.y, r.width, r.height)
+        bcr.clip()
+        self.scene.draw(bcr)
+        self.back.flush()
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_surface(self.back, 0, 0)
+        cr.paint()
+        return False
 
     def click_through(self, *_):
         self.input_shape_combine_region(cairo.Region())
@@ -129,7 +147,7 @@ class App:
         return True
 
     def check_fullscreen(self):
-        fs = is_fullscreen_focused()
+        fs = game_running() or is_fullscreen_focused()
         if fs and not self.paused:
             self.paused = True
             for b in self.boards:

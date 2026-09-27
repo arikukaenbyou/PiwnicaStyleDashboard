@@ -24,9 +24,10 @@ and **keeps off the character on your wallpaper** (holdout mask).
     Intel Arc 90 °C, NVMe min(70 °C, drive WCTEMP)), each overridable.
 - **Holdout**: give it a PNG mask (alpha = character) and neither the animation, the tint nor the panels
   touch that area; the panels are placed in the free space around the character, or skipped if there is none.
-- **Cheap**: only changed areas are repainted (~30 fps), data is sampled once per second, slow sensors every 5 s;
-  about 1–2 % of one CPU core for the dashboard on top of the animation. Pauses while a fullscreen window
-  (game, video) has focus.
+- **Cheap**: only changed areas are repainted (~30 fps), rendered client-side so the X server only copies
+  them; data is sampled once per second, slow sensors every 5 s. About 20 % of one CPU core for three
+  monitors with the dashboard (plus ~4 % in Xorg). **Switches off while a game runs** (Steam/Proton, Lutris,
+  Heroic/Wine, gamescope -- even windowed or alt-tabbed) or a fullscreen window (video) has focus.
 - **Click-through**, in the "below" window layer: desktop icons and the desktop menu keep working.
 
 ## Requirements
@@ -98,5 +99,7 @@ kliknięcia i omija postać na tapecie (maska holdout).
   limitu. Limity pochodzą ze sprzętu albo ze specyfikacji producenta i można je nadpisać w configu.
 - **Instalacja:** `./install.sh` bez sudo (zależności wypisze do `sudo pacman -S …`).
   Diagnostyka: `piwnica-dashboard detect`. Konfiguracja: `~/.config/piwnica-dashboard/config.toml`.
+- **Gry:** gdy działa gra (Steam/Proton, Lutris, Heroic/Wine, gamescope), efekt się wyłącza, także
+  w oknie i po Alt+Tab.
 - **Maska postaci:** PNG w rozmiarze monitora, gdzie alfa > 0 oznacza postać. Plik
   `holdout-<szer>x<wys>.png` obok tapety XFCE jest wykrywany sam. Przykład jest w `examples/orin/`.
