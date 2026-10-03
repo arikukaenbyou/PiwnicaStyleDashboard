@@ -1,7 +1,7 @@
 """Cairo drawing of the three panels: sysmon.sh (tiles), df -h (disks), sensors (temperatures).
 
 The panels change once a second, so they are rendered into a cached surface on each data tick;
-every frame only blits that and draws the steady flame along the bars (bar_flames), which is
+every frame only blits that and draws the CRT beam sweeping along the bars (bar_fx), which is
 the only part animated at full fps."""
 import math
 
@@ -36,10 +36,10 @@ def level_color(v, warn, crit):
 
 
 class Dashboard:
-    def __init__(self, rects, collector, flames=True):
+    def __init__(self, rects, collector, fx=True):
         self.rects = rects
         self.c = collector
-        self.flames_on = flames
+        self.fx_on = fx
         self.bars = []      # (x, y, filled_w, h, color), recorded while rendering the panels
         self.cache = None
         xs = [x for x, _, _, _ in rects.values()] or [0]
@@ -52,39 +52,30 @@ class Dashboard:
         self.c.sample()
         self.cache = None  # new numbers: re-render the panels on the next draw
 
-    # --- bar flames: a calm, even fire along the whole top of every bar fill, in the bar's
-    # colour. No particles: fixed tongues every 5 px whose height breathes smoothly.
-    def flames_tick(self, dt=1 / 30):
-        """Advance the flame clock; returns the strips above the bars to repaint."""
-        if not self.flames_on or not self.bars:
+    # --- CRT bars: a scanning beam sweeps along every fill (like the electron beam of an old
+    # tube), over scanlines baked into the bar. Only the bar strips are redrawn per frame.
+    BEAM_PERIOD = 2.8  # s for one sweep
+
+    def fx_tick(self, dt=1 / 30):
+        """Advance the beam clock; returns the bar strips to repaint."""
+        if not self.fx_on or not self.bars:
             return []
         self.ft = getattr(self, 'ft', 0.0) + dt
-        return [(int(x) - 2, int(y) - 14, int(w) + 4, 16) for x, y, w, _h, _c in self.bars if w >= 2]
+        return [(int(x) - 2, int(y) - 3, int(w) + 4, int(h) + 6) for x, y, w, h, _c in self.bars if w >= 2]
 
-    def draw_flames(self, cr):
+    def draw_fx(self, cr):
         t = getattr(self, 'ft', 0.0)
         cr.set_operator(cairo.OPERATOR_ADD)
-        for x, y, w, _h, (r, g, b) in self.bars:
+        for x, y, w, h, (r, g, b) in self.bars:
             if w < 2:
                 continue
-            top = y + 1
-            grad = cairo.LinearGradient(0, top - 12, 0, top)
-            grad.add_color_stop_rgba(0, r, g, b, 0)
-            grad.add_color_stop_rgba(0.55, r, g, b, 0.55)
-            grad.add_color_stop_rgba(1, (r + 1) / 2, (g + 1) / 2, (b + 1) / 2, 0.9)
-            cr.set_source(grad)
-            cr.move_to(x, top)
-            px, i = x, 0
-            while px <= x + w:
-                ph = i * 1.37
-                h = 3 + 4.5 * (0.55 + 0.45 * math.sin(t * 2.1 + ph)) * (0.75 + 0.25 * math.sin(t * 1.3 + ph * 0.6))
-                cr.curve_to(px - 2.5, top - h * 0.35, px - 1, top - h, px, top - h)
-                nx = min(px + 5, x + w)
-                cr.curve_to(px + 1, top - h, min(px + 2.5, x + w), top - h * 0.35, nx, top)
-                px += 5
-                i += 1
-            cr.line_to(x + w, top)
-            cr.close_path()
+            bx = x - 46 + ((t / self.BEAM_PERIOD) % 1) * (w + 46)
+            beam = cairo.LinearGradient(bx, 0, bx + 46, 0)
+            beam.add_color_stop_rgba(0, r, g, b, 0)
+            beam.add_color_stop_rgba(0.5, (r + 1) / 2, (g + 1) / 2, (b + 1) / 2, 0.85)
+            beam.add_color_stop_rgba(1, r, g, b, 0)
+            cr.set_source(beam)
+            cr.rectangle(max(x, bx), y - 2, min(x + w, bx + 46) - max(x, bx), h + 4)
             cr.fill()
         cr.set_operator(cairo.OPERATOR_OVER)
 
@@ -157,6 +148,16 @@ class Dashboard:
             cr.rectangle(sx, y, min(seg, x + fw - sx), h)
             sx += seg + gap
         cr.fill()
+        cr.set_source_rgba(0, 0, 0, 0.35)  # scanlines across the fill
+        for ly in range(int(y) + 1, int(y + h), 3):
+            cr.rectangle(x, ly, fw, 1)
+        cr.fill()
+        cr.set_source_rgba(1, 0, 0.35, 0.45)  # chromatic aberration at the fill's edge
+        cr.rectangle(x - 1, y, 1, h)
+        cr.fill()
+        cr.set_source_rgba(0, 1, 1, 0.4)
+        cr.rectangle(x + fw, y, 1, h)
+        cr.fill()
         self.bars.append((x, y, fw, h, color))
 
     def tile(self, cr, x, y, w, h, label, value, sub, hist=None, vmax=None, color=ACCENT):
@@ -192,8 +193,8 @@ class Dashboard:
             self.render()
         cr.set_source_surface(self.cache, self.box[0], self.box[1])
         cr.paint()
-        if self.flames_on:
-            self.draw_flames(cr)
+        if self.fx_on:
+            self.draw_fx(cr)
 
     def draw_infra(self, cr, rect, infra):
         """Infra alerts in the sysmon title bar, right-aligned: counts, then the top items."""

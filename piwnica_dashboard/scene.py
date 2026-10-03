@@ -94,16 +94,16 @@ def load_holdout(path, w, h):
 
 
 class Scene:
-    def __init__(self, w, h, seed=1000, tint=0.45, holdout=None, collector=None, glyphs=True, bar_flames=True):
+    def __init__(self, w, h, seed=1000, tint=0.45, holdout=None, collector=None, glyphs=True, bar_fx=True):
         self.W, self.H = w, h
         self.rnd = random.Random(seed)
         self.tint = tint
         self.holdout = holdout
         self.dash = None
         if collector is not None:
-            self.dash = Dashboard(layout(holdout_mask(holdout, w, h)), collector, flames=bar_flames)
+            self.dash = Dashboard(layout(holdout_mask(holdout, w, h)), collector, fx=bar_fx)
             self.dash.tick()
-            self.dash.render()  # bar positions known from the first frame (bar flames)
+            self.dash.render()  # bar positions known from the first frame (bar fx)
         self.glyphs = glyphs and self.dash is None  # glyph columns would run through the panels
         self.traces = make_traces(w, h, self.rnd, self.dash.rects.values() if self.dash else ())
         self.static = self.render_static()
@@ -200,7 +200,7 @@ class Scene:
             live.append(s)
         self.streams = live
         if self.dash:
-            dirty.extend(self.dash.flames_tick())
+            dirty.extend(self.dash.fx_tick())
         return [(int(x), int(y), int(w) + 1, int(h) + 1) for x, y, w, h in dirty]
 
     def dash_tick(self):

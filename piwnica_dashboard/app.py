@@ -118,7 +118,7 @@ class App:
             holdout = load_holdout(hold_path, m['w'], m['h'])
             collector = Collector(cfg) if i == dash_i else None
             scene = Scene(m['w'], m['h'], seed=1000 + i, tint=float(disp.get('tint', 0.45)), holdout=holdout, collector=collector,
-                          bar_flames=bool(disp.get('bar_flames', True)))
+                          bar_fx=bool(disp.get('bar_fx', True)))
             role = 'dashboard' if collector else 'traces'
             print(f'{TITLE}: {m["name"]} {m["w"]}x{m["h"]} {role}, holdout: {hold_path or "none"}'
                   + (f', panels: {scene.dash.rects}' if scene.dash else ''), flush=True)
