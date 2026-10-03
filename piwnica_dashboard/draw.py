@@ -1,4 +1,11 @@
-"""Cairo drawing of the three panels: sysmon.sh (tiles), df -h (disks), sensors (temperatures)."""
+"""Cairo drawing of the three panels: sysmon.sh (tiles), df -h (disks), sensors (temperatures).
+
+The panels change once a second, so they are rendered into a cached surface on each data tick;
+every frame only blits that and draws the small flames licking the bars (bar_flames), which
+are the only part animated at full fps."""
+import math
+import random
+
 import cairo
 
 from .collector import HIST
@@ -30,12 +37,69 @@ def level_color(v, warn, crit):
 
 
 class Dashboard:
-    def __init__(self, rects, collector):
+    def __init__(self, rects, collector, flames=True):
         self.rects = rects
         self.c = collector
+        self.flames_on = flames
+        self.bars = []      # (x, y, filled_w, h, color), recorded while rendering the panels
+        self.flames = []    # [x, y, vx, vy, life, decay, size, color, phase]
+        self.cache = None
+        self.rnd = random.Random(7)
+        xs = [x for x, _, _, _ in rects.values()] or [0]
+        ys = [y for _, y, _, _ in rects.values()] or [0]
+        self.box = (min(xs) - 4, min(ys) - 4,
+                    max(x + w for x, _, w, _ in rects.values()) - min(xs) + 8 if rects else 1,
+                    max(y + h for _, y, _, h in rects.values()) - min(ys) + 8 if rects else 1)
 
     def tick(self):
         self.c.sample()
+        self.cache = None  # new numbers: re-render the panels on the next draw
+
+    # --- bar flames: small tongues rising off every bar fill, in the bar's own colour
+    def flames_tick(self):
+        """Advance the flames; returns the strips above the bars to repaint."""
+        if not self.flames_on or not self.bars:
+            return []
+        rnd = self.rnd
+        for x, y, w, _h, color in self.bars:
+            if w < 2:
+                continue
+            for _ in range(max(1, round(w / 140))):
+                if rnd.random() < 0.3:
+                    self.flames.append([x + rnd.random() * w, y + 1, (rnd.random() - 0.5) * 0.25,
+                                        -0.35 - rnd.random() * 0.45, 1.0, 0.04 + rnd.random() * 0.03,
+                                        1.4 + rnd.random() * 1.8, color, rnd.random() * 6.3])
+        alive = []
+        for f in self.flames:
+            f[0] += f[2] + math.sin(f[8] + f[4] * 8) * 0.2
+            f[1] += f[3]
+            f[4] -= f[5]
+            if f[4] > 0:
+                alive.append(f)
+        self.flames = alive
+        return [(int(x) - 6, int(y) - 26, int(w) + 12, int(h) + 30) for x, y, w, h, _c in self.bars if w >= 2]
+
+    def draw_flames(self, cr):
+        cr.set_operator(cairo.OPERATOR_ADD)
+        for x, y, w, h, (r, g, b) in self.bars:
+            if w < 2:
+                continue
+            grad = cairo.LinearGradient(0, y - 10, 0, y + 2)  # heat haze hugging the fill
+            grad.add_color_stop_rgba(0, r, g, b, 0)
+            grad.add_color_stop_rgba(1, r, g, b, 0.28)
+            cr.set_source(grad)
+            cr.rectangle(x, y - 10, w, 12)
+            cr.fill()
+        for x, y, _vx, _vy, k, _d, size, (r, g, b), _ph in self.flames:
+            hot = min(1.0, (1 - k) ** 2 * 4 + 0.35)  # pale root at birth, then the bar colour
+            cr.set_source_rgba(1 + (r - 1) * hot, 1 + (g - 1) * hot, 1 + (b - 1) * hot, 0.65 * k)
+            cr.save()
+            cr.translate(x, y)
+            cr.scale(size * (0.35 + 0.5 * k), size * (1.2 + 1.6 * k))
+            cr.arc(0, 0, 1, 0, 2 * math.pi)
+            cr.restore()
+            cr.fill()
+        cr.set_operator(cairo.OPERATOR_OVER)
 
     # --- primitives
     @staticmethod
@@ -90,14 +154,23 @@ class Dashboard:
         cr.set_source_rgba(*ACCENT, 0.12)
         cr.fill()
 
-    @staticmethod
-    def bar(cr, x, y, w, h, pct, color):
+    def bar(self, cr, x, y, w, h, pct, color):
+        """Pip-Boy style: a dark track and a segmented fill with a phosphor glow."""
         cr.set_source_rgba(*BORDER, 0.9)
         cr.rectangle(x, y, w, h)
         cr.fill()
-        cr.set_source_rgba(*color, 0.9)
-        cr.rectangle(x, y, w * max(0, min(100, pct)) / 100, h)
+        fw = w * max(0, min(100, pct)) / 100
+        cr.set_source_rgba(*color, 0.18)  # glow
+        cr.rectangle(x, y - 2, fw, h + 4)
         cr.fill()
+        cr.set_source_rgba(*color, 0.95)
+        seg, gap = 9, 3
+        sx = x
+        while sx < x + fw:
+            cr.rectangle(sx, y, min(seg, x + fw - sx), h)
+            sx += seg + gap
+        cr.fill()
+        self.bars.append((x, y, fw, h, color))
 
     def tile(self, cr, x, y, w, h, label, value, sub, hist=None, vmax=None, color=ACCENT):
         cr.set_source_rgba(*BORDER, 0.8)
@@ -111,13 +184,29 @@ class Dashboard:
         self.text(cr, x + 10, y + 70, sub, 11, MUTED)
 
     # --- panels
-    def draw(self, cr):
+    def render(self):
+        """Panels into the cache surface (once per data tick)."""
+        bx, by, bw, bh = self.box
+        surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, max(1, int(bw)), max(1, int(bh)))
+        cr = cairo.Context(surf)
+        cr.translate(-bx, -by)
+        self.bars = []
         d = self.c.data
-        if not d:
+        if d:
+            for name, fn in (('sysmon', self.draw_sysmon), ('df', self.draw_df), ('sensors', self.draw_sensors)):
+                if name in self.rects:
+                    fn(cr, self.rects[name], d)
+        self.cache = surf
+
+    def draw(self, cr):
+        if not self.c.data:
             return
-        for name, fn in (('sysmon', self.draw_sysmon), ('df', self.draw_df), ('sensors', self.draw_sensors)):
-            if name in self.rects:
-                fn(cr, self.rects[name], d)
+        if self.cache is None:
+            self.render()
+        cr.set_source_surface(self.cache, self.box[0], self.box[1])
+        cr.paint()
+        if self.flames_on:
+            self.draw_flames(cr)
 
     def draw_infra(self, cr, rect, infra):
         """Infra alerts in the sysmon title bar, right-aligned: counts, then the top items."""

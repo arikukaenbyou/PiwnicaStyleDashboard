@@ -10,7 +10,7 @@ import tomllib
 
 DEFAULTS = {
     'display': {'monitor': 'auto', 'traces_on_other_monitors': True, 'tint': 0.45, 'fps': 30,
-                'dashboard_in_games': True},
+                'dashboard_in_games': True, 'bar_flames': True},
     'holdout': {'path': 'auto'},
     'network': {'interface': 'auto'},
     'gpu': {'backend': 'auto'},
@@ -34,6 +34,8 @@ fps = 30
 # While a game runs (or a fullscreen window has focus) the traces on the other monitors
 # switch off; the dashboard monitor keeps running -- set to false to switch it off too.
 dashboard_in_games = true
+# Small flames rising off the bars (df -h, sensors), in each bar's colour.
+bar_flames = true
 
 [holdout]
 # Mask that keeps the animation and the panels off a character on the wallpaper:
