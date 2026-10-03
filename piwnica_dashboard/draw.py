@@ -1,10 +1,9 @@
 """Cairo drawing of the three panels: sysmon.sh (tiles), df -h (disks), sensors (temperatures).
 
 The panels change once a second, so they are rendered into a cached surface on each data tick;
-every frame only blits that and draws the small flames licking the bars (bar_flames), which
-are the only part animated at full fps."""
+every frame only blits that and draws the steady flame along the bars (bar_flames), which is
+the only part animated at full fps."""
 import math
-import random
 
 import cairo
 
@@ -42,9 +41,7 @@ class Dashboard:
         self.c = collector
         self.flames_on = flames
         self.bars = []      # (x, y, filled_w, h, color), recorded while rendering the panels
-        self.flames = []    # [x, y, vx, vy, life, decay, size, color, phase]
         self.cache = None
-        self.rnd = random.Random(7)
         xs = [x for x, _, _, _ in rects.values()] or [0]
         ys = [y for _, y, _, _ in rects.values()] or [0]
         self.box = (min(xs) - 4, min(ys) - 4,
@@ -55,49 +52,39 @@ class Dashboard:
         self.c.sample()
         self.cache = None  # new numbers: re-render the panels on the next draw
 
-    # --- bar flames: small tongues rising off every bar fill, in the bar's own colour
-    def flames_tick(self):
-        """Advance the flames; returns the strips above the bars to repaint."""
+    # --- bar flames: a calm, even fire along the whole top of every bar fill, in the bar's
+    # colour. No particles: fixed tongues every 5 px whose height breathes smoothly.
+    def flames_tick(self, dt=1 / 30):
+        """Advance the flame clock; returns the strips above the bars to repaint."""
         if not self.flames_on or not self.bars:
             return []
-        rnd = self.rnd
-        for x, y, w, _h, color in self.bars:
-            if w < 2:
-                continue
-            for _ in range(max(1, round(w / 140))):
-                if rnd.random() < 0.3:
-                    self.flames.append([x + rnd.random() * w, y + 1, (rnd.random() - 0.5) * 0.25,
-                                        -0.35 - rnd.random() * 0.45, 1.0, 0.04 + rnd.random() * 0.03,
-                                        1.4 + rnd.random() * 1.8, color, rnd.random() * 6.3])
-        alive = []
-        for f in self.flames:
-            f[0] += f[2] + math.sin(f[8] + f[4] * 8) * 0.2
-            f[1] += f[3]
-            f[4] -= f[5]
-            if f[4] > 0:
-                alive.append(f)
-        self.flames = alive
-        return [(int(x) - 6, int(y) - 26, int(w) + 12, int(h) + 30) for x, y, w, h, _c in self.bars if w >= 2]
+        self.ft = getattr(self, 'ft', 0.0) + dt
+        return [(int(x) - 2, int(y) - 14, int(w) + 4, 16) for x, y, w, _h, _c in self.bars if w >= 2]
 
     def draw_flames(self, cr):
+        t = getattr(self, 'ft', 0.0)
         cr.set_operator(cairo.OPERATOR_ADD)
-        for x, y, w, h, (r, g, b) in self.bars:
+        for x, y, w, _h, (r, g, b) in self.bars:
             if w < 2:
                 continue
-            grad = cairo.LinearGradient(0, y - 10, 0, y + 2)  # heat haze hugging the fill
+            top = y + 1
+            grad = cairo.LinearGradient(0, top - 12, 0, top)
             grad.add_color_stop_rgba(0, r, g, b, 0)
-            grad.add_color_stop_rgba(1, r, g, b, 0.28)
+            grad.add_color_stop_rgba(0.55, r, g, b, 0.55)
+            grad.add_color_stop_rgba(1, (r + 1) / 2, (g + 1) / 2, (b + 1) / 2, 0.9)
             cr.set_source(grad)
-            cr.rectangle(x, y - 10, w, 12)
-            cr.fill()
-        for x, y, _vx, _vy, k, _d, size, (r, g, b), _ph in self.flames:
-            hot = min(1.0, (1 - k) ** 2 * 4 + 0.35)  # pale root at birth, then the bar colour
-            cr.set_source_rgba(1 + (r - 1) * hot, 1 + (g - 1) * hot, 1 + (b - 1) * hot, 0.65 * k)
-            cr.save()
-            cr.translate(x, y)
-            cr.scale(size * (0.35 + 0.5 * k), size * (1.2 + 1.6 * k))
-            cr.arc(0, 0, 1, 0, 2 * math.pi)
-            cr.restore()
+            cr.move_to(x, top)
+            px, i = x, 0
+            while px <= x + w:
+                ph = i * 1.37
+                h = 3 + 4.5 * (0.55 + 0.45 * math.sin(t * 2.1 + ph)) * (0.75 + 0.25 * math.sin(t * 1.3 + ph * 0.6))
+                cr.curve_to(px - 2.5, top - h * 0.35, px - 1, top - h, px, top - h)
+                nx = min(px + 5, x + w)
+                cr.curve_to(px + 1, top - h, min(px + 2.5, x + w), top - h * 0.35, nx, top)
+                px += 5
+                i += 1
+            cr.line_to(x + w, top)
+            cr.close_path()
             cr.fill()
         cr.set_operator(cairo.OPERATOR_OVER)
 
