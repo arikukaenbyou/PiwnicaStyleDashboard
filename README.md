@@ -31,6 +31,20 @@ and **keeps off the character on your wallpaper** (holdout mask).
   switch off and the **dashboard keeps running**, to watch the game's load (`dashboard_in_games = false` to stop it too).
 - **Click-through**, in the "below" window layer: desktop icons and the desktop menu keep working.
 
+## Optional: homelab alerts
+
+Set `[infra] url` and `token` in the config and the `sysmon.sh` title bar shows what
+needs attention in your homelab -- counts of critical/warning items and the most urgent
+ones, polled every 5 minutes in the background. Any server can feed it; it expects
+
+```json
+{"counts": {"critical": 0, "warning": 2, "info": 5},
+ "alerts": [{"level": "critical|warning|info", "title": "...", "reason": "..."}]}
+```
+
+with the token sent as `Authorization: Bearer <token>`. Empty `url` = off (the default).
+If the server is unreachable, the last counts stay on screen, dimmed and marked stale.
+
 ## Requirements
 
 Arch Linux, an X11 session with a **compositing** window manager (XFCE: *Window Manager Tweaks → Compositor*;

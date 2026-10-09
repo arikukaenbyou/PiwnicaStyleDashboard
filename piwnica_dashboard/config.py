@@ -15,6 +15,7 @@ DEFAULTS = {
     'network': {'interface': 'auto'},
     'gpu': {'backend': 'auto'},
     'temps': {'cpu_limit': 0, 'gpu_limit': 0, 'nvme_limit': 0},
+    'infra': {'url': '', 'token': '', 'interval': 300},
 }
 
 TEMPLATE = """\
@@ -56,6 +57,14 @@ backend = "auto"
 cpu_limit = 0
 gpu_limit = 0
 nvme_limit = 0
+
+[infra]
+# Optional: a JSON endpoint listing what needs attention in your homelab (see README).
+# Empty url = off. The token is sent as "Authorization: Bearer <token>" -- keep this
+# file private (chmod 600) if you set it.
+url = ""
+token = ""
+interval = 300
 """
 
 
