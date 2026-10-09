@@ -119,8 +119,33 @@ class Dashboard:
             if name in self.rects:
                 fn(cr, self.rects[name], d)
 
+    def draw_infra(self, cr, rect, infra):
+        """Infra alerts in the sysmon title bar, right-aligned: counts, then the top items."""
+        if not infra:
+            return
+        x, y, w, _ = rect
+        c = infra['counts']
+        cr.set_source_rgba(0, 0, 0, 1)  # hide the '[-] ●' decoration under the strip
+        cr.rectangle(x + w * 0.3, y + 2, w * 0.7 - 2, 18)
+        cr.fill()
+        if c['critical']:
+            head, color = f'infra ✕ {c["critical"]} critical · ▲ {c["warning"]}', DANGER
+        elif c['warning']:
+            head, color = f'infra ▲ {c["warning"]} warning', WARN
+        else:
+            head, color = f'infra ● ok · {c["info"]} updates', ACCENT
+        if infra.get('error'):
+            head, color = f'{head} · stale ({infra["error"]})', DIM
+        items = ' · '.join(f'{"✕" if a["level"] == "critical" else "▲"} {a["title"]}: {a["reason"]}' for a in infra['top'])
+        line = f'{head}   {items}' if items else head
+        max_chars = int(w * 0.7 / 7.2)  # ~7.2 px per 12 px JetBrains Mono glyph
+        if len(line) > max_chars:
+            line = line[:max_chars - 1].rstrip(' ·:') + '…'
+        self.text(cr, x + w - 10, y + 15, line, 12, color, align='right')
+
     def draw_sysmon(self, cr, rect, d):
         self.panel(cr, rect, 'sysmon.sh')
+        self.draw_infra(cr, rect, d.get('infra'))
         x, y, w, h = rect
         pad, gap = 12, 10
         tw, th = (w - 2 * pad - 2 * gap) / 3, (h - 22 - 2 * pad - gap) / 2

@@ -4,6 +4,7 @@ import time
 from collections import deque
 
 from .collect import gpu as gpu_mod
+from .collect.infra import InfraPoller
 from .collect.system import SystemCollector
 from .collect.temps import DEFAULT_LIMIT, VirtualSensor, find_sensors
 
@@ -12,8 +13,12 @@ HIST_KEYS = ('cpu', 'gpu', 'mem', 'iowait', 'rx', 'tx')
 
 
 class Collector:
-    def __init__(self, cfg=None, system=None, gpu='auto', clock=time.monotonic):
+    def __init__(self, cfg=None, system=None, gpu='auto', clock=time.monotonic, infra='auto'):
         cfg = cfg or {}
+        if infra == 'auto':
+            infra = InfraPoller.from_config(cfg)
+            infra = infra.start() if infra else None
+        self.infra = infra
         self.clock = clock
         self.system = system or SystemCollector(iface=cfg.get('network', {}).get('interface', 'auto'))
         self.gpu = gpu_mod.detect(cfg.get('gpu', {}).get('backend', 'auto')) if gpu == 'auto' else gpu
@@ -43,6 +48,7 @@ class Collector:
             self.temps_at = now
             self.temps = [(s, s.read()) for s in self._sensors(d['disks'])]
         d['temps'] = [(s, v) for s, v in self.temps if v is not None]
+        d['infra'] = self.infra.latest if self.infra else None
         for k in HIST_KEYS:
             self.hist[k].append(d.get(k) or 0.0)
         self.data = d
@@ -80,7 +86,10 @@ class DemoCollector:
                   'used': 800 * 2 ** 30, 'pct': 85.8, 'rd': 0.0, 'wr': 0.0},
                  {'name': 'sda', 'model': 'WDC WD10EARX', 'mounts': ['/mnt/hdd'], 'total': 932 * 2 ** 30,
                   'used': 885 * 2 ** 30, 'pct': 95.0, 'rd': 0.0, 'wr': 1.1e5}],
-             'temps': self._sensors}
+             'temps': self._sensors,
+             'infra': {'counts': {'critical': 1, 'warning': 2, 'info': 7}, 'error': None,
+                       'top': [{'level': 'critical', 'title': 'backup-nas', 'reason': 'not responding for 20 min'},
+                               {'level': 'warning', 'title': 'media-server', 'reason': '12 updates waiting for 34 days'}]}}
         for k in HIST_KEYS:
             self.hist[k].append(d.get(k) or 0.0)
         self.data = d
