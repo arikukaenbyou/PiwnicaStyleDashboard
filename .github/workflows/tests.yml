@@ -1,12 +1,14 @@
 name: tests
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 jobs:
   test:
     runs-on: ubuntu-latest
     container: archlinux:latest
+    # nodejs: actions/checkout to akcja JS -- GitHub montuje node do kontenera sam,
+    # runner Forgejo nie, więc musi być w obrazie.
     steps:
       - name: Dependencies
-        run: pacman -Syu --noconfirm --needed python python-numpy python-cairo git
+        run: pacman -Syu --noconfirm --needed python python-numpy python-cairo git nodejs
       - uses: actions/checkout@v4
       - name: Unit tests (fake /proc and /sys, no display)
         run: python -m unittest discover -s tests -t . -v
