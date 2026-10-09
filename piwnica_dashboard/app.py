@@ -7,8 +7,11 @@ Click-through detail that matters: the empty input shape is set on the *widget*
 Setting it once on the GdkWindow at "realize" gets reset by GTK after a hide/show, and a
 full-screen window then swallows every click on the desktop.
 """
+import fcntl
+import os
 import signal
 import subprocess
+import sys
 
 import cairo
 import gi
@@ -118,7 +121,7 @@ class App:
             holdout = load_holdout(hold_path, m['w'], m['h'])
             collector = Collector(cfg) if i == dash_i else None
             scene = Scene(m['w'], m['h'], seed=1000 + i, tint=float(disp.get('tint', 0.45)), holdout=holdout, collector=collector,
-                          bar_fx=bool(disp.get('bar_fx', True)))
+                          bar_fx=bool(disp.get('bar_fx', True)), panels=disp.get('panels'))
             role = 'dashboard' if collector else 'traces'
             print(f'{TITLE}: {m["name"]} {m["w"]}x{m["h"]} {role}, holdout: {hold_path or "none"}'
                   + (f', panels: {scene.dash.rects}' if scene.dash else ''), flush=True)
@@ -179,6 +182,19 @@ class App:
         return False
 
 
+def single_instance():
+    """Lock held for the life of the process: a second copy would stack its layer on the first
+    one (the wallpaper tint and the panel backgrounds applied twice)."""
+    path = os.path.join(os.environ.get('XDG_RUNTIME_DIR') or '/tmp', f'piwnica-dashboard-{os.getuid()}.lock')
+    f = open(path, 'a+')  # noqa: SIM115 -- kept open on purpose
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        sys.exit('piwnica-dashboard: already running (pkill -f "piwnica_dashboard run" to restart)')
+    return f
+
+
 def run(cfg):
+    lock = single_instance()  # noqa: F841 -- released when the process exits
     App(cfg)
     Gtk.main()

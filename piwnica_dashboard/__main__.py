@@ -1,4 +1,4 @@
-"""piwnica-dashboard run | detect | screenshot"""
+"""piwnica-dashboard run | detect | screenshot | inventory | updates"""
 import argparse
 import os
 import sys
@@ -31,6 +31,16 @@ def cmd_detect(cfg):
         print(f'disk:      {dk["name"]} {dk["model"]} {" ".join(dk["mounts"])}')
     for s in find_sensors(cfg['temps'], {dk['name']: dk['model'] for dk in d['disks']}):
         print(f'sensor:    {s.label:<16} limit {s.limit:g} C  (yellow from {s.yellow:g}, red from {s.red:g})')
+    if cfg['pacman'].get('enabled', True):
+        import shutil
+
+        from .collect.pacman import PacmanCollector
+        pc = PacmanCollector(pending_interval=0, background=False)
+        last = pc.state.last()
+        tools = ', '.join(t for t in ('checkupdates', 'yay') if shutil.which(t)) or 'none'
+        print(f'pacman:    {len(pc.state.per_pkg)} past runs in the log, '
+              f'{pc.state.sec_per_pkg():.2f} s/package, last -Syu {last["pkgs"] if last else 0} packages; '
+              f'pending via: {tools}')
 
 
 def cmd_screenshot(args, cfg):
@@ -39,7 +49,7 @@ def cmd_screenshot(args, cfg):
     from .scene import Scene, load_holdout
     w, h = (int(x) for x in args.size.split('x'))
     holdout = load_holdout(args.holdout, w, h)
-    scene = Scene(w, h, seed=args.seed, tint=float(cfg['display']['tint']), holdout=holdout,
+    scene = Scene(w, h, seed=args.seed, tint=float(cfg['display']['tint']), holdout=holdout, panels=cfg['display'].get('panels'),
                   collector=DemoCollector() if args.demo else None)
     for _ in range(args.frames):  # let a few pulses appear
         scene.tick()
@@ -59,6 +69,105 @@ def cmd_screenshot(args, cfg):
     print(f'wrote {args.out}' + (f', panels: {scene.dash.rects}' if scene.dash else ''))
 
 
+def cmd_inventory(cfg, as_json=False):
+    import json
+    from .collect.proxmox import ProxmoxCollector
+
+    px = cfg.get('proxmox', {})
+    if not px.get('enabled', True) or not px.get('host'):
+        print('Proxmox is not configured; set [proxmox].host in the dashboard config.')
+        return 1
+    collector = ProxmoxCollector(
+        px['host'], px.get('token_file', ''), px.get('fingerprint', ''), px.get('node', 'auto'),
+        background=False, ssh_user=px.get('ssh_user', 'root'),
+    )
+    data = collector.sample()
+    if data.get('error') == 'no token':
+        print('Proxmox API token is missing or invalid.')
+        return 1
+    if as_json:
+        print(json.dumps(data, indent=2, default=list))
+        return 0
+
+    print(f'Proxmox node: {data.get("node") or "unavailable"}')
+    if data.get('error'):
+        print(f'  API error: {data["error"]}')
+    print('\nPhysical disks / SMART')
+    for disk in data.get('disks') or []:
+        smart = data.get('smart', {}).get(disk['name']) or {}
+        facts = [smart.get('health') or 'SMART unavailable']
+        for label, key, suffix in (('temp', 'temperature', 'C'), ('hours', 'hours', 'h'),
+                                   ('cycles', 'cycles', ''), ('wear', 'wear', '%'),
+                                   ('reallocated', 'reallocated', ''), ('pending', 'pending', ''),
+                                   ('uncorrectable', 'uncorrectable', ''), ('media errors', 'media_errors', ''),
+                                   ('error log', 'error_log_entries', '')):
+            if smart.get(key) is not None:
+                facts.append(f'{label} {smart[key]}{suffix}')
+        print(f'  {disk["name"]:<14} {disk["model"]:<28} {disk["size"] / 2**40:.2f} TiB  '
+              f'{disk.get("used", "unknown")}  ' + ' · '.join(facts))
+    if data.get('disk_error'):
+        print(f'  SMART/disk API error: {data["disk_error"]}')
+
+    print('\nLXC / VM application inventory')
+    for guest in data.get('inventory') or []:
+        kind = guest['type'].upper()
+        state = guest.get('status') or 'unknown'
+        print(f'  {kind} {guest["id"]} {guest["name"]} — {state}')
+        if guest.get('os'):
+            print(f'    OS: {guest["os"]}')
+        if guest.get('error'):
+            print(f'    Scan: {guest["error"]}')
+            continue
+        for app in guest.get('app_versions') or []:
+            print(f'    app: {app}')
+        for package in guest.get('packages') or []:
+            print(f'    pkg: {package}')
+        updates = guest.get('updates') or []
+        print(f'    cached package updates: {len(updates)}')
+        for update in updates:
+            print(f'      update: {update}')
+        if guest.get('docker_error'):
+            print(f'    Docker: {guest["docker_error"]}')
+        for container in guest.get('docker') or []:
+            print(f'    Docker: {container["name"]:<24} {container["image"]:<40} {container["status"]}')
+    if data.get('inventory_error'):
+        print(f'\nGuest scan error: {data["inventory_error"]}')
+    print('\nUpdate checks use package-manager metadata already cached in each guest; '
+          'Docker output reports local image tags and does not contact registries.')
+    return 0
+
+
+def cmd_updates(cfg, show_all=False, as_json=False):
+    import json
+    from .collect.updates import UpdatesCollector
+
+    al = cfg.get('afterlife', {})
+    show_ok = show_all or bool(cfg.get('updates', {}).get('show_ok', False))
+    data = UpdatesCollector(al.get('base_url', 'https://ariku.pl'), al.get('token_file', '~/.config/piwnica-dashboard/luneta.token'),
+                            show_ok, background=False).sample()
+    if data.get('error') == 'no token':
+        print('Luneta device token missing: add a device on ariku.pl/luneta and save its token to '
+              f'{al.get("token_file", "~/.config/piwnica-dashboard/luneta.token")}')
+        return 1
+    if 'items' not in data:
+        print(f'inventory unavailable: {data.get("error")}')
+        return 1
+    if as_json:
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        return 0
+    c = data['counts']
+    print(' · '.join(f'{s} {c[s]}' for s in c) + f'  ({data["total"]} items)')
+    for it in data['items']:
+        ver = it.get('version') or ''
+        if it.get('latestVersion') and it['latestVersion'] != ver:
+            ver = f'{ver} → {it["latestVersion"]}'.strip()
+        print(f'  {it["status"]:<9} {it.get("kind") or "?":<9} {it.get("name") or it.get("id"):<28} '
+              f'{ver:<24} {it.get("reason") or ""}'.rstrip())
+    if data['hidden_ok']:
+        print(f'  … {data["hidden_ok"]} ok hidden (--all, or [updates] show_ok = true)')
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog='piwnica-dashboard', description='Animated PCB desktop layer with a system dashboard.')
     ap.add_argument('--version', action='version', version=__version__)
@@ -66,6 +175,11 @@ def main(argv=None):
     sub = ap.add_subparsers(dest='cmd')
     sub.add_parser('run', help='start the desktop layer (default)')
     sub.add_parser('detect', help='show detected monitors, GPU, network, disks and sensors')
+    inv = sub.add_parser('inventory', help='show Proxmox disk SMART, guest packages and Docker image tags')
+    inv.add_argument('--json', action='store_true', help='print raw inventory as JSON')
+    upd = sub.add_parser('updates', help='what in the homelab needs an update or an intervention (ariku.pl inventory)')
+    upd.add_argument('--all', action='store_true', help='also list everything that is ok')
+    upd.add_argument('--json', action='store_true', help='print the view as JSON')
     sc = sub.add_parser('screenshot', help='render one frame to a PNG (no window needed)')
     sc.add_argument('out')
     sc.add_argument('--size', default='1200x1920')
@@ -80,6 +194,10 @@ def main(argv=None):
         return cmd_detect(cfg)
     if args.cmd == 'screenshot':
         return cmd_screenshot(args, cfg)
+    if args.cmd == 'inventory':
+        return cmd_inventory(cfg, args.json)
+    if args.cmd == 'updates':
+        return cmd_updates(cfg, args.all, args.json)
     try:
         os.nice(10)
     except OSError:

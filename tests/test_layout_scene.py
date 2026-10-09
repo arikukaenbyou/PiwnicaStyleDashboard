@@ -74,7 +74,7 @@ class TestLayout(unittest.TestCase):
     def test_example_character_keeps_all_panels_off_her(self):
         _, mask = example_mask()
         rects = layout(mask)
-        self.assertEqual(sorted(rects), ['df', 'sensors', 'sysmon'])
+        self.assertTrue({'sysmon', 'df', 'sensors', 'pacman', 'updates', 'proxmox'} <= set(rects))
         for x, y, w, h in rects.values():
             self.assertFalse(mask[y:y + h, x:x + w].any())
             self.assertTrue(0 <= x and 0 <= y and x + w <= 1200 and y + h <= 1920)
@@ -88,8 +88,30 @@ class TestLayout(unittest.TestCase):
 
     def test_landscape_monitor_without_holdout(self):
         rects = layout(np.zeros((1080, 1920), bool))
-        self.assertEqual(sorted(rects), ['df', 'sensors', 'sysmon'])
-        self.assertLessEqual(rects['sysmon'][2], 1120)
+        self.assertEqual(sorted(rects), ['df', 'luneta', 'nfs', 'now', 'pacman', 'proxmox', 'sensors', 'sysmon', 'updates'])
+        vals = list(rects.values())
+        self.assertFalse(any(overlaps(a, b) for i, a in enumerate(vals) for b in vals[i + 1:]))
+        self.assertLessEqual(rects['sysmon'][2], 1160)
+        # the pacman panel shares the right column with sensors, one margin under sysmon
+        self.assertEqual(rects['pacman'][0], rects['sensors'][0])
+        self.assertEqual(rects['pacman'][1], rects['sysmon'][1] + rects['sysmon'][3] + 20)
+
+    def test_example_panels_line_up(self):
+        _, mask = example_mask()
+        r = layout(mask)
+        right = lambda n: r[n][0] + r[n][2]  # noqa: E731
+        self.assertEqual((r['sysmon'][0], r['df'][0]), (20, 20))                       # common left edge
+        self.assertEqual({right('sysmon'), right('sensors'), right('pacman')}, {1180})  # common right edge
+        self.assertEqual(r['pacman'][1], r['sysmon'][1] + r['sysmon'][3] + 20)          # same gap as to the edge
+        # extra panels sit one margin under a panel, at the screen edge
+        bottoms = {py + ph + 20 for _px, py, _pw, ph in r.values()}
+        for name in ('updates', 'proxmox'):
+            self.assertIn(r[name][1], bottoms)
+            self.assertIn(r[name][0], (20, 1180 - r[name][2]))
+
+    def test_only_wanted_extras(self):
+        rects = layout(np.zeros((1080, 1920), bool), extra=('nfs',))
+        self.assertEqual(sorted(rects), ['df', 'nfs', 'sensors', 'sysmon'])
 
 
 class TestScene(unittest.TestCase):

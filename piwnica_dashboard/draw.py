@@ -1,9 +1,12 @@
-"""Cairo drawing of the three panels: sysmon.sh (tiles), df -h (disks), sensors (temperatures).
+"""Cairo drawing of the panels: sysmon.sh (tiles), df -h (disks), sensors (temperatures) and
+pacman (update progress, or a summary of past updates between them).
 
 The panels change once a second, so they are rendered into a cached surface on each data tick;
 every frame only blits that and draws the CRT beam sweeping along the bars (bar_fx), which is
 the only part animated at full fps."""
 import math
+import time
+from datetime import datetime
 
 import cairo
 
@@ -29,6 +32,41 @@ def fmt_rate(bps):
 def fmt_uptime(s):
     d, h, m = int(s // 86400), int(s % 86400 // 3600), int(s % 3600 // 60)
     return f'{d}d {h}h' if d else f'{h}h {m}m'
+
+
+def fmt_eta(s):
+    if s is None:
+        return '--:--'
+    s = int(s)
+    return f'{s // 3600}h{s % 3600 // 60:02d}' if s >= 3600 else f'{s // 60}:{s % 60:02d}'
+
+
+def fmt_ago(ts, now):
+    s = now - ts
+    return ('just now' if s < 60 else f'{s / 60:.0f}m ago' if s < 3600 else f'{s / 3600:.0f}h ago' if s < 86400
+            else f'{s / 86400:.0f}d ago')
+
+
+def fmt_size(b, sign=False):
+    a = abs(b)
+    s = f'{a / 2 ** 40:.1f} TB' if a >= 2 ** 40 else f'{a / GiB:.1f} GB' if a >= GiB else f'{a / 2 ** 20:.0f} MB'
+    return ('-' if b < 0 else '+') + s if sign else s
+
+
+def fmt_left(s):
+    """Countdown: 42m, 3h12, 1d17h."""
+    if s is None:
+        return '--'
+    s = max(0, int(s))
+    if s < 3600:
+        return f'{s // 60}m'
+    if s < 86400:
+        return f'{s // 3600}h{s % 3600 // 60:02d}'
+    return f'{s // 86400}d{s % 86400 // 3600}h'
+
+
+PHASE = {'sync': 'SYNC', 'download': 'DOWNLOAD', 'verify': 'VERIFY', 'install': 'INSTALL', 'hooks': 'HOOKS',
+         'aur': 'AUR BUILD', 'prep': 'PREPARING'}
 
 
 def level_color(v, warn, crit):
@@ -113,6 +151,17 @@ class Dashboard:
         self.text(cr, x + w - 10, y + 15, '[-] ●', 12, DIM, align='right')
 
     @staticmethod
+    def fit(cr, s, size, maxw, bold=False):
+        """s cut with an ellipsis to fit maxw pixels."""
+        cr.select_font_face(FONT, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD if bold else cairo.FONT_WEIGHT_NORMAL)
+        cr.set_font_size(size)
+        if cr.text_extents(s).x_advance <= maxw:
+            return s
+        while s and cr.text_extents(s + '…').x_advance > maxw:
+            s = s[:-1]
+        return s + '…'
+
+    @staticmethod
     def spark(cr, x, y, w, h, hist, vmax=None):
         vals = list(hist)
         if len(vals) < 2:
@@ -133,10 +182,14 @@ class Dashboard:
         cr.fill()
 
     def bar(self, cr, x, y, w, h, pct, color):
-        """Pip-Boy style: a dark track and a segmented fill with a phosphor glow."""
+        """Pip-Boy style: a dark track and a segmented fill with a phosphor glow.
+        pct None: unknown progress -- only the track, with the beam sweeping along all of it."""
         cr.set_source_rgba(*BORDER, 0.9)
         cr.rectangle(x, y, w, h)
         cr.fill()
+        if pct is None:
+            self.bars.append((x, y, w, h, color))
+            return
         fw = w * max(0, min(100, pct)) / 100
         cr.set_source_rgba(*color, 0.18)  # glow
         cr.rectangle(x, y - 2, fw, h + 4)
@@ -181,7 +234,9 @@ class Dashboard:
         self.bars = []
         d = self.c.data
         if d:
-            for name, fn in (('sysmon', self.draw_sysmon), ('df', self.draw_df), ('sensors', self.draw_sensors)):
+            for name, fn in (('sysmon', self.draw_sysmon), ('df', self.draw_df), ('sensors', self.draw_sensors),
+                             ('pacman', self.draw_pacman), ('updates', self.draw_updates), ('proxmox', self.draw_proxmox), ('nfs', self.draw_nfs),
+                             ('luneta', self.draw_luneta), ('now', self.draw_now), ('forge', self.draw_forge)):
                 if name in self.rects:
                     fn(cr, self.rects[name], d)
         self.cache = surf
@@ -283,3 +338,450 @@ class Dashboard:
             lim = f' / lim {g["cap_mhz"]}' if g.get('cap_mhz') and g.get('max_mhz') and g['cap_mhz'] < g['max_mhz'] else ''
             watts = f' · {g["watts"]:.0f} W' if g.get('watts') is not None else ''
             self.text(cr, x + 12, y + h - 14, f'GPU {g["mhz"]} MHz{lim}{watts}', 11, DIM)
+
+    def draw_pacman(self, cr, rect, d):
+        p = d.get('pacman')
+        if not p:
+            return
+        x, y, w, h = rect
+        self.panel(cr, rect, p.get('tool') or 'pacman')
+        if p['state'] == 'idle':
+            self.draw_pacman_idle(cr, rect, p)
+            return
+        if p['state'] in ('aur', 'prep'):
+            self.draw_pacman_aur(cr, rect, p)
+            return
+        right = x + w - 12
+        self.text(cr, x + 12, y + 42, PHASE.get(p['state'], p['state'].upper()), 12, ACCENT, bold=True)
+        self.text(cr, right, y + 42, f'run {fmt_eta(p.get("elapsed"))}', 11, DIM, align='right')
+
+        # this package (or hook / AUR build)
+        pct = p.get('pkg_pct')
+        if p['state'] == 'hooks':
+            info = f'{p.get("hook_s", 0):.0f}s'
+        elif pct is not None:
+            info = f'{pct:.0f}% · {fmt_eta(p.get("pkg_eta"))}'
+        else:
+            info = ''
+        self.text(cr, right, y + 64, info, 11, MUTED, align='right')
+        info_w = cr.text_extents(info).x_advance  # font still set by text()
+        self.text(cr, x + 12, y + 64, self.fit(cr, p.get('pkg') or '', 11, w - 36 - info_w), 11, TEXT)
+        self.bar(cr, x + 12, y + 72, w - 24, 8, pct, ACCENT if pct is not None else MUTED)
+
+        # the whole run
+        total, done = p.get('total') or 0, p.get('done') or 0
+        if p['state'] in ('download', 'verify') and p.get('dl_files'):
+            count = f'{p["dl_files"][0]}/{p["dl_files"][1]} dl'
+        else:
+            count = f'{done}/{total} pkgs' if total else ''
+        self.text(cr, x + 12, y + 102, 'TOTAL', 11, DIM)
+        self.text(cr, x + 60, y + 102, count, 11, TEXT)
+        self.text(cr, right, y + 102, f'ETA {fmt_eta(p.get("eta"))}', 12, ACCENT, bold=True, align='right')
+        self.bar(cr, x + 12, y + 110, w - 24, 8, None if p['state'] == 'sync' else p.get('pct'), ACCENT)
+
+        # speed, sizes, the hook / last package
+        if p.get('dl_total') and p['state'] in ('download', 'verify'):
+            self.text(cr, x + 12, y + 140, f'↓ {fmt_rate(p.get("speed") or 0)}', 11, TEXT)
+            self.text(cr, x + 12, y + 156, f'{fmt_size(p["dl_bytes"])}/{fmt_size(p["dl_total"])}', 11, MUTED)
+            self.spark(cr, x + w / 2, y + 128, w / 2 - 12, 30, self.c.hist['dl'])
+        notes = []
+        if p.get('size_delta'):
+            notes.append(f'disk {fmt_size(p["size_delta"], sign=True)}')
+        if p.get('last_pkg'):
+            notes.append(f'✓ {p["last_pkg"]}')
+        self.text(cr, x + 12, y + 178, self.fit(cr, ' · '.join(notes), 11, w - 24), 11, DIM)
+        self.draw_pacman_alerts(cr, rect, p, y + h - 14)
+
+    def draw_pacman_aur(self, cr, rect, p):
+        """yay / makepkg: the package being built (time from its past builds), the queue, the stage."""
+        x, y, w, h = rect
+        right = x + w - 12
+        self.text(cr, x + 12, y + 42, PHASE[p['state']], 12, ACCENT, bold=True)
+        self.text(cr, right, y + 42, f'run {fmt_eta(p.get("elapsed"))}', 11, DIM, align='right')
+
+        pct = p.get('pkg_pct')
+        if not p.get('pkg'):
+            info = ''
+        elif pct is not None:
+            info = f'{pct:.0f}% · {fmt_eta(p.get("pkg_eta"))}'
+        else:
+            info = fmt_eta(p.get('build_s'))
+        self.text(cr, right, y + 64, info, 11, MUTED, align='right')
+        info_w = cr.text_extents(info).x_advance
+        self.text(cr, x + 12, y + 64, self.fit(cr, p.get('pkg') or 'resolving…', 11, w - 36 - info_w), 11, TEXT)
+        self.bar(cr, x + 12, y + 72, w - 24, 8, pct, ACCENT if pct is not None else MUTED)
+
+        total, done = p.get('total'), p.get('done') or 0
+        self.text(cr, x + 12, y + 102, 'QUEUE', 11, DIM)
+        self.text(cr, x + 60, y + 102, f'{min(done + 1, total)}/{total} AUR' if total else 'AUR', 11, TEXT)
+        self.text(cr, right, y + 102, f'ETA {fmt_eta(p.get("eta"))}', 12, ACCENT, bold=True, align='right')
+        self.bar(cr, x + 12, y + 110, w - 24, 8, p.get('pct') if total else None, ACCENT)
+
+        if p.get('stage'):
+            self.text(cr, x + 12, y + 146, 'STAGE', 11, DIM)
+            self.text(cr, x + 60, y + 146, p['stage'], 12, ACCENT, bold=True)
+            self.text(cr, x + 150, y + 146, self.fit(cr, p.get('stage_detail') or '', 11, w - 162), 11, MUTED)
+        facts = []
+        if p.get('steps'):
+            facts.append(f'ninja {p["steps"][0]}/{p["steps"][1]}')
+        if p.get('avg_build'):
+            facts.append(f'~{fmt_eta(p["avg_build"])}/pkg')
+        if p.get('queue_left'):
+            facts.append(f'{len(p["queue_left"])} left to build')
+        if facts:
+            self.text(cr, x + 12, y + 178, self.fit(cr, ' · '.join(facts), 11, w - 24), 11, DIM)
+        self.draw_pacman_alerts(cr, rect, p, y + h - 14)
+
+    def draw_pacman_alerts(self, cr, rect, p, yy):
+        x, y, w, h = rect
+        alerts = []
+        if p.get('errors'):
+            alerts.append((f'{p["errors"]} errors', DANGER))
+        if p.get('warnings'):
+            alerts.append((f'{p["warnings"]} warnings', WARN))
+        if p.get('reboot'):
+            alerts.append(('reboot: ' + ', '.join(p['reboot']), DANGER if 'kernel' in p['reboot'] else WARN))
+        if p.get('pacnew'):
+            alerts.append((f'{len(p["pacnew"])} .pacnew', WARN))
+        if not alerts:
+            return
+        s = self.fit(cr, '⚠ ' + ' · '.join(a for a, _ in alerts), 11, w - 24)
+        self.text(cr, x + 12, yy, s, 11, alerts[0][1])
+
+    def draw_pacman_idle(self, cr, rect, p):
+        x, y, w, h = rect
+        right = x + w - 12
+        now = time.time()
+        last = p.get('last')
+        self.text(cr, x + 12, y + 42, 'LAST -Syu', 11, DIM)
+        self.text(cr, right, y + 42, 'idle', 11, DIM, align='right')
+        if last:
+            self.text(cr, x + 12, y + 68, fmt_ago(last['ts'], now), 18, ACCENT, bold=True)
+            self.text(cr, right, y + 68, f'{last["pkgs"]} pkgs in {fmt_eta(last["dur"])}', 11, MUTED, align='right')
+        else:
+            self.text(cr, x + 12, y + 68, 'never', 18, DIM, bold=True)
+
+        pend = p.get('pending')
+        self.text(cr, x + 12, y + 92, 'PENDING', 11, DIM)
+        if pend is None or pend == (None, None):
+            val, color = '…', DIM
+        else:
+            repo, aur = pend
+            val = ' · '.join(filter(None, [f'{repo} repo' if repo is not None else '', f'{aur} AUR' if aur else '']))
+            color = WARN if (repo or 0) >= 100 else TEXT if (repo or aur) else ACCENT
+            val = val or 'up to date'
+        self.text(cr, x + 90, y + 92, val, 12, color, bold=True)
+
+        # packages changed per day, last 30 days
+        daily = p.get('daily') or []
+        if daily:
+            bx, by, bw, bh = x + 12, y + 104, w - 24, 34
+            top = max(max(daily), 1)
+            step = bw / len(daily)
+            cr.set_source_rgba(*BORDER, 0.9)
+            cr.rectangle(bx, by + bh, bw, 1)
+            cr.fill()
+            cr.set_source_rgba(*ACCENT, 0.8)
+            for i, n in enumerate(daily):
+                if n:
+                    bar_h = max(2, bh * math.sqrt(n / top))  # sqrt: one huge day must not flatten the rest
+                    cr.rectangle(bx + i * step + 1, by + bh - bar_h, max(1, step - 2), bar_h)
+            cr.fill()
+            self.text(cr, bx, by + bh + 14, '30 d', 10, DIM)
+            self.text(cr, bx + bw, by + bh + 14, f'{sum(daily)} pkgs', 10, DIM, align='right')
+
+        reboot = p.get('reboot') or []
+        if reboot:
+            self.text(cr, x + 12, y + 182, self.fit(cr, '⚠ reboot: ' + ', '.join(reboot), 11, w - 24), 11,
+                      DANGER if 'kernel' in reboot else WARN)
+        else:
+            self.text(cr, x + 12, y + 182, '✓ no reboot needed', 11, DIM)
+        pacnew = p.get('pacnew') or []
+        if pacnew:
+            names = ' '.join(path.rsplit('/', 1)[-1][:-7] for path in pacnew)
+            self.text(cr, x + 12, y + 202, self.fit(cr, f'⚠ {len(pacnew)} .pacnew: {names}', 11, w - 24), 11, WARN)
+        else:
+            self.text(cr, x + 12, y + 202, '✓ no .pacnew', 11, DIM)
+
+    # --- homelab / afterlife panels
+    def row_bar(self, cr, x, y, w, label, pct, value, color=None, lw=None):
+        """label | bar | value on one line (y = text baseline)."""
+        color = color or level_color(pct, 80, 92)
+        lw = lw or 64
+        self.text(cr, x, y, self.fit(cr, label, 11, lw - 6), 11, TEXT)
+        self.text(cr, x + w, y, value, 11, color, bold=True, align='right')
+        vw = cr.text_extents(value).x_advance
+        self.bar(cr, x + lw, y - 8, max(10, w - lw - vw - 10), 8, pct, color)
+
+    def panel_error(self, cr, rect, lines):
+        x, y, w, h = rect
+        for i, (s, color) in enumerate(lines):
+            self.text(cr, x + 12, y + 44 + 20 * i, self.fit(cr, s, 11, w - 24), 11, color)
+
+    def draw_proxmox(self, cr, rect, d):
+        p, st = d.get('proxmox') or {}, d.get('stream') or {}
+        x, y, w, h = rect
+        self.panel(cr, rect, f'pve {p.get("node") or ""}'.strip())
+        if p.get('error') and not p.get('cpu_hist'):
+            self.panel_error(cr, rect, [(f'no data: {p["error"]}', WARN)])
+            return
+        if p.get('error') or not p.get('node'):
+            self.panel_error(cr, rect, [(p.get('error') or 'connecting…', WARN if p.get('error') else DIM)])
+            return
+        iw = w - 24
+        self.row_bar(cr, x + 12, y + 44, iw, 'CPU', p['cpu'], f'{p["cpu"]:.0f}%', level_color(p['cpu'], 70, 90), 46)
+        mp = 100 * p['mem_used'] / p['mem_total'] if p['mem_total'] else 0
+        self.row_bar(cr, x + 12, y + 62, iw, 'RAM', mp, f'{p["mem_used"] / GiB:.0f}/{p["mem_total"] / GiB:.0f} GB',
+                     level_color(mp, 80, 92), 46)
+        down = p.get('down') or []
+        self.text(cr, x + 12, y + 86, f'{p["running"]}/{p["guests"]} up', 11, ACCENT if not down else WARN, bold=True)
+        self.text(cr, x + 100, y + 86, self.fit(cr, ('down: ' + ' '.join(down)) if down else f'up {fmt_uptime(p["uptime"])}',
+                                                11, w - 112), 11, WARN if down else DIM)
+        yy = y + 108
+        for stg in (p.get('storages') or [])[:4]:
+            self.row_bar(cr, x + 12, yy, iw, stg['name'], stg['pct'], f'{stg["pct"]:.0f}%', None, 84)
+            yy += 18
+        audit = p.get('inventory_summary') or {}
+        if audit and (p.get('inventory_at') or p.get('inventory_error')):
+            smart_color = DANGER if audit['smart_issues'] else DIM
+            summary = (f'SMART {audit["smart_known"]}/{audit["disk_count"]}'
+                       f' · updates {audit["updates"]} · Docker {audit["docker_count"]}')
+            if p.get('inventory_error'):
+                summary = f'inventory: {p["inventory_error"]}'
+                smart_color = WARN
+            self.text(cr, x + 12, y + 180, self.fit(cr, summary, 9, w - 24), 9, smart_color)
+        b = p.get('backup')
+        if b and b.get('last_end'):
+            ok = b.get('last_status') == 'OK'
+            nxt = f' · next {fmt_left(b["next_run"] - time.time())}' if b.get('next_run') else ''
+            self.text(cr, x + 12, y + h - 36, self.fit(cr, f'backup {b.get("schedule") or ""}: {b["last_status"]} '
+                                                           f'{fmt_ago(b["last_end"], time.time())}{nxt}', 11, w - 24),
+                      11, DIM if ok else DANGER)
+        if st.get('live'):
+            rate = f'{st["bps"] / 1e6:.1f} Mb/s' if st.get('bps') else '…'
+            self.text(cr, x + 12, y + h - 14, self.fit(cr, f'● LIVE {rate} · {fmt_eta(st.get("for"))} → {st.get("peer")}',
+                                                       11, w - 24), 11, DANGER, bold=True)
+        else:
+            self.text(cr, x + 12, y + h - 14, 'stream off', 11, DIM)
+
+    def draw_nfs(self, cr, rect, d):
+        shares = list(d.get('nfs') or [])
+        proxmox = d.get('proxmox') or {}
+        for share in proxmox.get('nfs') or []:
+            server = share['source'].partition(':')[0]
+            shares.append({
+                'name': f'pve {share["name"]}', 'target': share['name'], 'source': share['source'],
+                'server': server, 'mounted': share['active'], 'remote': True,
+                'total': share['total'], 'used': share['used'], 'pct': share['pct'], 'rd': 0.0, 'wr': 0.0,
+            })
+        x, y, w, h = rect
+        servers = sorted({s['server'] for s in shares})
+        self.panel(cr, rect, f'nfs ({len(shares)}) ' + (', '.join(servers) if servers else ''))
+        if not shares:
+            msg = 'no NFS shares in /etc/fstab or Proxmox'
+            if proxmox.get('nfs_error'):
+                msg += f' · PVE: {proxmox["nfs_error"]}'
+            self.panel_error(cr, rect, [(msg, WARN if proxmox.get('nfs_error') else DIM)])
+            return
+        yy = y + 42
+        rows = max(1, (h - 30) // 36)
+        shown_rows = rows - 1 if proxmox.get('nfs_error') else rows
+        for sh in shares[:shown_rows]:
+            if sh.get('remote'):
+                if sh.get('pct') is not None:
+                    self.row_bar(cr, x + 12, yy, w - 24, sh['name'], sh['pct'], f'{sh["pct"]:.0f}%', None, 120)
+                    self.text(cr, x + 12, yy + 15, self.fit(cr, sh['source'], 10, w - 24), 10, MUTED)
+                else:
+                    self.text(cr, x + 12, yy, sh['name'], 12, MUTED, bold=True)
+                    status = 'offline' if not sh['mounted'] else 'capacity unknown'
+                    self.text(cr, x + w - 12, yy, status, 11, WARN if not sh['mounted'] else DIM, align='right')
+                    self.text(cr, x + 12, yy + 15, self.fit(cr, sh['source'], 10, w - 24), 10, DIM)
+            elif not sh['mounted']:
+                self.text(cr, x + 12, yy, sh['name'], 12, DIM, bold=True)
+                self.text(cr, x + w - 12, yy, 'automount · idle', 11, DIM, align='right')
+            elif sh.get('hung'):
+                self.text(cr, x + 12, yy, sh['name'], 12, DANGER, bold=True)
+                self.text(cr, x + w - 12, yy, 'server not answering', 11, DANGER, align='right')
+            elif 'pct' in sh:
+                self.row_bar(cr, x + 12, yy, w - 24, sh['name'], sh['pct'], f'{sh["pct"]:.0f}%', None, 120)
+                io = []
+                if sh['rd'] >= 1e3:
+                    io.append(f'R {fmt_rate(sh["rd"])}')
+                if sh['wr'] >= 1e3:
+                    io.append(f'W {fmt_rate(sh["wr"])}')
+                self.text(cr, x + 12, yy + 15, f'{fmt_size(sh["used"])}/{fmt_size(sh["total"])}', 10, MUTED)
+                self.text(cr, x + w - 12, yy + 15, ' '.join(io), 10, TEXT, align='right')
+            else:
+                self.text(cr, x + 12, yy, sh['name'], 12, MUTED, bold=True)
+                self.text(cr, x + w - 12, yy, sh.get('error') or 'reading…', 11, DIM, align='right')
+            yy += 36
+        if proxmox.get('nfs_error'):
+            self.text(cr, x + 12, y + h - 14, self.fit(cr, f'PVE NFS unavailable: {proxmox["nfs_error"]}', 10, w - 24),
+                      10, WARN)
+
+    KIND_TAG = {'host': 'pve', 'lxc': 'lxc', 'vm': 'vm', 'container': 'ctr', 'service': 'svc', 'addon': 'ha',
+                'router': 'net', 'pc': 'pc', 'device': 'iot'}
+    UPDATE_COLOR = {'critical': DANGER, 'attention': WARN, 'stale': WARN, 'update': ACCENT, 'unknown': DIM, 'ok': DIM}
+
+    def draw_updates(self, cr, rect, d):
+        """ariku.pl inventory: what needs an update or an intervention, most urgent first."""
+        u = d.get('updates') or {}
+        x, y, w, h = rect
+        c = u.get('counts') or {}
+        warn = c.get('attention', 0) + c.get('stale', 0)
+        tally = ' · '.join(f'{n} {label}' for n, label in ((c.get('critical', 0), 'crit'), (warn, 'warn'),
+                                                           (c.get('update', 0), 'upd')) if n)
+        self.panel(cr, rect, f'updates{" · " + tally if tally else ""}')
+        if u.get('error') == 'no token':
+            self.panel_error(cr, rect, [('needs a Luneta device token:', WARN),
+                                        ('ariku.pl/luneta → add device "Dashboard",', DIM),
+                                        ('then save it to', DIM),
+                                        ('~/.config/piwnica-dashboard/luneta.token', MUTED)])
+            return
+        if 'items' not in u:
+            self.panel_error(cr, rect, [(u.get('error') or 'connecting…', WARN if u.get('error') not in (None, 'connecting…') else DIM)])
+            return
+        items = u['items']
+        if not u.get('total'):
+            self.panel_error(cr, rect, [('inventory is empty', DIM),
+                                        ('install the PVE collector: afterlife deploy/inventory', DIM)])
+        elif not items:
+            self.text(cr, x + 12, y + 46, 'all ok ✓', 13, ACCENT, bold=True)
+            self.text(cr, x + 12, y + 64, f'{u["total"]} items checked', 11, MUTED)
+        rows = max(1, (h - 22 - 20 - 26) // 18 + 1)
+        if len(items) > rows:
+            rows -= 1  # room for "+N more"
+        yy = y + 42
+        for it in items[:rows]:
+            color = self.UPDATE_COLOR.get(it.get('status'), DIM)
+            cr.set_source_rgba(*color, 0.95)
+            cr.rectangle(x + 12, yy - 8, 7, 7)
+            cr.fill()
+            kind = self.KIND_TAG.get(it.get('kind'), (it.get('kind') or '?')[:3])
+            self.text(cr, x + 26, yy, kind, 10, DIM)
+            kx = x + 54
+            name = self.fit(cr, it.get('name') or it.get('id') or '?', 11, w * 0.5 - (kx - x), bold=True)
+            self.text(cr, kx, yy, name, 11, TEXT if it.get('status') != 'ok' else MUTED, bold=True)
+            nx = kx + cr.text_extents(name).x_advance + 10
+            why = it.get('reason') or ('no data from its source' if it.get('status') == 'stale' else
+                                       it.get('version') or it.get('status') or '')
+            self.text(cr, x + w - 12, yy, self.fit(cr, why, 10, x + w - 12 - nx), 10, color, align='right')
+            yy += 18
+        if len(items) > rows:
+            self.text(cr, x + 12, yy, f'+{len(items) - rows} more · piwnica-dashboard updates', 10, DIM)
+        foot = []
+        if u.get('hidden_ok'):
+            foot.append(f'{u["hidden_ok"]} ok hidden')
+        if u.get('age') is not None:
+            foot.append(f'sync {fmt_ago(time.time() - u["age"], time.time())}')
+        if u.get('error'):
+            foot.append(u['error'])
+        self.text(cr, x + 12, y + h - 12, self.fit(cr, ' · '.join(foot), 10, w - 24), 10, WARN if u.get('error') else DIM)
+
+    def draw_luneta(self, cr, rect, d):
+        lu = d.get('luneta') or {}
+        x, y, w, h = rect
+        self.panel(cr, rect, 'luneta')
+        yy = y + 42
+        for g in (lu.get('games') or [])[:2]:
+            self.text(cr, x + 12, yy, g['name'], 12, ACCENT, bold=True)
+            self.text(cr, x + w - 12, yy, f'reset {fmt_left(g["daily_in"])}', 11, MUTED, align='right')
+            pct = 100 * g['done'] / g['tasks'] if g['tasks'] else 0
+            color = DANGER if g['critical_left'] and g['daily_in'] is not None and g['daily_in'] < 3 * 3600 else \
+                WARN if g['critical_left'] else ACCENT
+            prem = g.get('premium')
+            pv = f'{prem["amount"]} {prem["label"]}' if prem and prem.get('amount') is not None else ''
+            self.row_bar(cr, x + 12, yy + 18, w - 24, f'daily {g["done"]}/{g["tasks"]}', pct, pv, color, 96)
+            ev = g.get('event')
+            if ev:
+                self.text(cr, x + 12, yy + 35, self.fit(cr, f'{fmt_left(ev["ends_in"])} · {ev["name"]}', 10, w - 24), 10, DIM)
+            yy += 56
+        a = lu.get('analysis')
+        if a and a.get('of'):
+            state = 'dead' if a.get('dead') else 'paused' if a.get('paused') else 'running' if a.get('running') else 'stopped'
+            pct = 100 * (a.get('mediaDoneS') or 0) / a['mediaTotalS'] if a.get('mediaTotalS') else 100 * (a.get('done') or 0) / a['of']
+            eta = f' · ETA {fmt_eta(a.get("etaS"))}' if a.get('running') and a.get('etaS') else ''
+            self.text(cr, x + 12, yy + 4, self.fit(cr, f'analiza {a.get("done", 0)}/{a["of"]} · {state}{eta}', 11, w - 24), 11,
+                      DANGER if a.get('dead') else TEXT)
+            self.bar(cr, x + 12, yy + 10, w - 24, 6, pct, ACCENT if a.get('running') else MUTED)
+        hb = lu.get('heartbeat')
+        if lu.get('agent_running'):
+            agent, color = f'agent on · sync {fmt_ago(hb, time.time()) if hb else "…"}', DIM
+        else:
+            agent, color = f'agent off · last sync {fmt_ago(hb, time.time()) if hb else "never"}', WARN
+        if not lu.get('remote'):
+            agent += ' · no token'
+        self.text(cr, x + 12, y + h - 14, self.fit(cr, agent, 11, w - 24), 11, color)
+
+    def draw_now(self, cr, rect, d):
+        n = d.get('now') or {}
+        x, y, w, h = rect
+        self.panel(cr, rect, 'co teraz')
+        if n.get('error') == 'no token':
+            self.panel_error(cr, rect, [('needs a Luneta device token:', WARN),
+                                        ('ariku.pl/luneta → add device "Dashboard",', DIM),
+                                        ('then save it to', DIM),
+                                        ('~/.config/piwnica-dashboard/luneta.token', MUTED)])
+            return
+        if n.get('error'):
+            self.panel_error(cr, rect, [(n['error'], WARN if n['error'] != 'connecting…' else DIM)])
+            return
+        now = n.get('now') or []
+        if now:
+            q = now[0]
+            self.text(cr, x + 12, y + 46, self.fit(cr, q['quest'].get('title') or '?', 13, w - 24, bold=True), 13, TEXT, bold=True)
+            why = ' · '.join(filter(None, [f'~{q["estimateMin"]} min' if q.get('estimateMin') else '', *(q.get('reasons') or [])[:2]]))
+            self.text(cr, x + 12, y + 64, self.fit(cr, why, 11, w - 24), 11, MUTED)
+            if len(now) > 1:
+                self.text(cr, x + 12, y + 82, self.fit(cr, 'or: ' + ' · '.join(a['quest'].get('title') or '' for a in now[1:3]),
+                                                       10, w - 24), 10, DIM)
+        else:
+            self.text(cr, x + 12, y + 46, 'nothing urgent', 13, ACCENT, bold=True)
+        fixed = (n.get('fixedSoon') or [])[:1]
+        if fixed:
+            f = fixed[0]
+            when = (None if not f.get('startAt') else
+                    fmt_left(datetime.fromisoformat(f['startAt'].replace('Z', '+00:00')).timestamp() - time.time()))
+            self.text(cr, x + 12, y + 104, self.fit(cr, f'next fixed: {f.get("title")}' + (f' in {when}' if when else ''), 11, w - 24),
+                      11, TEXT)
+        ch = n.get('chaos')
+        if ch:
+            col = {'calm': ACCENT, 'busy': WARN, 'heavy': DANGER}.get(ch.get('level'), ACCENT)
+            big = ch.get('biggest') or {}
+            self.row_bar(cr, x + 12, y + 128, w - 24, 'chaos', min(100, ch.get('score', 0)),
+                         f'{ch.get("score", 0)} {ch.get("levelLabel") or ch.get("level") or ""}', col, 64)
+            if big.get('label'):
+                self.text(cr, x + 12, y + 144, self.fit(cr, f'most: {big["label"]} ({big.get("count", 0)})', 10, w - 24), 10, DIM)
+        m = n.get('majster')
+        if m:
+            self.row_bar(cr, x + 12, y + h - 14, w - 24, f'majster {m.get("level")}', m.get('percent') or 0,
+                         f'{m.get("totalXp", 0)} XP', ACCENT, 96)
+
+    def draw_forge(self, cr, rect, d):
+        f, g = d.get('forge') or {}, d.get('gpu_info') or {}
+        x, y, w, h = rect
+        self.panel(cr, rect, 'kuźnia')
+        c = f.get('comfy')
+        if f.get('comfy_up') and c:
+            busy = c['running'] or c['pending']
+            self.text(cr, x + 12, y + 44, 'ComfyUI', 12, ACCENT, bold=True)
+            self.text(cr, x + w - 12, y + 44, f'running {c["running"]} · queue {c["pending"]}', 11, WARN if busy else MUTED,
+                      align='right')
+            if c.get('vram_total'):
+                vp = 100 * c['vram_used'] / c['vram_total']
+                self.row_bar(cr, x + 12, y + 64, w - 24, 'VRAM', vp, f'{c["vram_used"] / GiB:.1f}/{c["vram_total"] / GiB:.0f} GB',
+                             level_color(vp, 80, 92), 50)
+        else:
+            self.text(cr, x + 12, y + 44, 'ComfyUI', 12, DIM, bold=True)
+            self.text(cr, x + w - 12, y + 44, 'off', 11, DIM, align='right')
+        if g:
+            gp = d.get('gpu') or 0
+            self.row_bar(cr, x + 12, y + 86, w - 24, 'GPU', gp,
+                         ' · '.join(filter(None, [f'{gp:.0f}%', f'{g["watts"]:.0f} W' if g.get('watts') is not None else ''])),
+                         level_color(gp, 80, 95), 50)
+        s = f.get('softstart') or {}
+        if s.get('active') == 'active':
+            cap = ' / '.join(filter(None, [f'{s["max_mhz"]} MHz' if s.get('max_mhz') else '', f'{s["watts"]} W' if s.get('watts') else '']))
+            self.text(cr, x + 12, y + h - 14, self.fit(cr, f'softstart on · cap {cap or "RP0"}', 11, w - 24), 11, DIM)
+        elif s:
+            self.text(cr, x + 12, y + h - 14, '⚠ gpu-softstart off: no clock cap (reset risk)', 11, DANGER)

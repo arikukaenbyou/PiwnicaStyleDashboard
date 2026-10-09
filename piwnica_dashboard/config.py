@@ -10,12 +10,20 @@ import tomllib
 
 DEFAULTS = {
     'display': {'monitor': 'auto', 'traces_on_other_monitors': True, 'tint': 0.45, 'fps': 30,
-                'dashboard_in_games': True, 'bar_fx': True},
+                'dashboard_in_games': True, 'bar_fx': True,
+                'panels': ['pacman', 'updates', 'proxmox', 'nfs', 'luneta', 'now', 'forge']},
     'holdout': {'path': 'auto'},
     'network': {'interface': 'auto'},
     'gpu': {'backend': 'auto'},
     'temps': {'cpu_limit': 0, 'gpu_limit': 0, 'nvme_limit': 0},
     'infra': {'url': '', 'token': '', 'interval': 300},
+    'pacman': {'enabled': True, 'pending_interval': 1800, 'aur': True},
+    'nfs': {'enabled': True},
+    'proxmox': {'enabled': True, 'host': '', 'token_file': '~/.config/piwnica-dashboard/proxmox.token',
+                'fingerprint': '', 'node': 'auto', 'ssh_user': 'root'},
+    'afterlife': {'enabled': True, 'base_url': 'https://ariku.pl', 'token_file': '~/.config/piwnica-dashboard/luneta.token'},
+    'forge': {'enabled': True, 'comfyui': 'http://127.0.0.1:8188'},
+    'updates': {'enabled': True, 'show_ok': False, 'interval': 300},
 }
 
 TEMPLATE = """\
@@ -36,6 +44,9 @@ fps = 30
 dashboard_in_games = true
 # CRT look on the bars (df -h, sensors): scanlines and a scanning beam sweeping along them.
 bar_fx = true
+# Extra panels, most wanted first; each goes into the free space left by the ones before it and is
+# skipped when nothing fits (sysmon, df -h and sensors always come first).
+panels = ["pacman", "updates", "proxmox", "nfs", "luneta", "now", "forge"]
 
 [holdout]
 # Mask that keeps the animation and the panels off a character on the wallpaper:
@@ -67,6 +78,59 @@ nvme_limit = 0
 url = ""
 token = ""
 interval = 300
+
+[pacman]
+# Panel with the progress of a running pacman / yay update (download, install, hooks, AUR builds
+# with time estimates) and, between updates, the last -Syu, pending updates, reboot needed, .pacnew.
+enabled = true
+# Seconds between checks for pending updates (checkupdates from pacman-contrib, `yay -Qua`
+# when aur = true); they use the network. 0 = never.
+pending_interval = 1800
+aur = true
+
+[nfs]
+# Every nfs share from /etc/fstab: usage, traffic, and whether the server answers.
+enabled = true
+
+[proxmox]
+# Proxmox VE host: load, guests (and which are down), storages, NFS shares, physical disks and backup job;
+# the stream line shows whether this PC is sending RTMP. For example: host = "192.168.1.100", node = "ariku".
+# Needs a read-only API token, e.g. on the PVE host:
+#   pveum user add dash@pve; pveum acl modify / --users dash@pve --roles PVEAuditor
+#   pveum user token add dash@pve dashboard --privsep 0
+# then put "dash@pve!dashboard=<secret>" into token_file (chmod 600), and the certificate's
+# fingerprint (openssl s_client -connect HOST:8006 | openssl x509 -noout -fingerprint -sha256).
+# Disk SMART and guest package/Docker inventory require SSH access (default root) to the PVE node.
+# The scan runs read-only every 30 min using pct and QEMU Guest Agent; it installs nothing.
+enabled = true
+host = ""
+token_file = "~/.config/piwnica-dashboard/proxmox.token"
+fingerprint = ""
+node = "auto"
+ssh_user = "root"
+
+[afterlife]
+# Luneta: game resets, dailies, events and the recording analysis, read from the local Luneta agent.
+# With a device token from ariku.pl/luneta in token_file the states refresh from the server and
+# the "co teraz" panel (companion /api/companion/now) works.
+enabled = true
+base_url = "https://ariku.pl"
+token_file = "~/.config/piwnica-dashboard/luneta.token"
+
+[forge]
+# Kuźnia on this PC: ComfyUI queue and the gpu-softstart clock cap.
+enabled = true
+comfyui = "http://127.0.0.1:8188"
+
+[updates]
+# What in the homelab needs an update or an intervention (Proxmox, LXC/VM, Docker, services, router,
+# PCs, IoT), as judged by the ariku.pl inventory; uses the Luneta device token from [afterlife].
+enabled = true
+# false = only what needs attention, true = also everything that is ok.
+# Picked up while the dashboard runs, no restart needed.
+show_ok = false
+# Seconds between refreshes.
+interval = 300
 """
 
 
@@ -78,6 +142,7 @@ def config_path():
 def load(path=None, create=True):
     path = path or config_path()
     cfg = copy.deepcopy(DEFAULTS)
+    cfg['_path'] = path  # for switches re-read while running (updates.show_ok)
     if not os.path.exists(path):
         if create:
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -90,6 +155,15 @@ def load(path=None, create=True):
         if isinstance(values, dict):
             cfg.setdefault(section, {}).update(values)
     return cfg
+
+
+def read_value(path, section, key, default=None):
+    """One value from the config file as it is now (for switches that work without a restart)."""
+    try:
+        with open(path, 'rb') as f:
+            return tomllib.load(f).get(section, {}).get(key, default)
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        return default
 
 
 def pick_monitor(monitors, wanted='auto'):

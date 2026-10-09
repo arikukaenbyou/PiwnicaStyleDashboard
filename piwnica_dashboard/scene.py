@@ -94,14 +94,17 @@ def load_holdout(path, w, h):
 
 
 class Scene:
-    def __init__(self, w, h, seed=1000, tint=0.45, holdout=None, collector=None, glyphs=True, bar_fx=True):
+    def __init__(self, w, h, seed=1000, tint=0.45, holdout=None, collector=None, glyphs=True, bar_fx=True, panels=None):
         self.W, self.H = w, h
         self.rnd = random.Random(seed)
         self.tint = tint
         self.holdout = holdout
         self.dash = None
         if collector is not None:
-            self.dash = Dashboard(layout(holdout_mask(holdout, w, h)), collector, fx=bar_fx)
+            from .layout import EXTRA
+            have = getattr(collector, 'panels', EXTRA)  # only panels with a configured source get space
+            extra = [p for p in (panels or EXTRA) if p in have]
+            self.dash = Dashboard(layout(holdout_mask(holdout, w, h), extra), collector, fx=bar_fx)
             self.dash.tick()
             self.dash.render()  # bar positions known from the first frame (bar fx)
         self.glyphs = glyphs and self.dash is None  # glyph columns would run through the panels
