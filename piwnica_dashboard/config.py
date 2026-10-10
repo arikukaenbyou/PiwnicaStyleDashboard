@@ -11,7 +11,7 @@ import tomllib
 DEFAULTS = {
     'display': {'monitor': 'auto', 'traces_on_other_monitors': True, 'tint': 0.45, 'fps': 30,
                 'dashboard_in_games': True, 'bar_fx': True,
-                'panels': ['pacman', 'updates', 'proxmox', 'nfs', 'luneta', 'now', 'forge']},
+                'panels': ['pacman', 'updates', 'builds', 'proxmox', 'claude', 'nfs', 'luneta', 'now', 'forge']},
     'holdout': {'path': 'auto'},
     'network': {'interface': 'auto'},
     'gpu': {'backend': 'auto'},
@@ -23,7 +23,12 @@ DEFAULTS = {
                 'fingerprint': '', 'node': 'auto', 'ssh_user': 'root'},
     'afterlife': {'enabled': True, 'base_url': 'https://ariku.pl', 'token_file': '~/.config/piwnica-dashboard/luneta.token'},
     'forge': {'enabled': True, 'comfyui': 'http://127.0.0.1:8188'},
-    'updates': {'enabled': True, 'show_ok': False, 'interval': 300},
+    'updates': {'enabled': True, 'show_ok': False, 'focus': 'security', 'interval': 300},
+    'claude': {'enabled': True, 'credentials': '~/.claude/.credentials.json', 'interval': 60},
+    'builds': {'enabled': True, 'forgejo_url': 'https://git.ariku.pl',
+               'token_file': '~/.config/piwnica-dashboard/forgejo.token',
+               'repos': ['afterlife', 'luneta', 'companion_app'],
+               'interval': 30},
 }
 
 TEMPLATE = """\
@@ -46,7 +51,7 @@ dashboard_in_games = true
 bar_fx = true
 # Extra panels, most wanted first; each goes into the free space left by the ones before it and is
 # skipped when nothing fits (sysmon, df -h and sensors always come first).
-panels = ["pacman", "updates", "proxmox", "nfs", "luneta", "now", "forge"]
+panels = ["pacman", "updates", "builds", "proxmox", "claude", "nfs", "luneta", "now", "forge"]
 
 [holdout]
 # Mask that keeps the animation and the panels off a character on the wallpaper:
@@ -129,8 +134,32 @@ enabled = true
 # false = only what needs attention, true = also everything that is ok.
 # Picked up while the dashboard runs, no restart needed.
 show_ok = false
+# "security" = what an attacker could use: security updates, known-vulnerable versions, outages, the
+# Proxmox host, the router, network services and community-scripts apps; routine updates (IoT firmware,
+# game-server images, HA add-ons, plain package updates in guests) are only counted.
+# "all" = every item. Also picked up without a restart.
+focus = "security"
 # Seconds between refreshes.
 interval = 300
+
+[builds]
+# Forgejo CI builds (git.ariku.pl): monitor long-running builds (afterlife, luneta, companion_app).
+# Needs a personal access token from git.ariku.pl (Settings → Applications → Generate Token)
+# in token_file (chmod 600).
+enabled = true
+forgejo_url = "https://git.ariku.pl"
+token_file = "~/.config/piwnica-dashboard/forgejo.token"
+repos = ["afterlife", "luneta", "companion_app"]
+interval = 30
+
+[claude]
+# Claude plan limits (5h session, week, extra usage), the numbers Claude Code's /usage shows.
+# Reads Claude Code's OAuth token from `credentials` (read-only, never refreshed here) and asks
+# api.anthropic.com/api/oauth/usage -- an undocumented endpoint, the panel says so when it changes.
+enabled = true
+credentials = "~/.claude/.credentials.json"
+# Seconds between refreshes.
+interval = 60
 """
 
 

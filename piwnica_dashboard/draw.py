@@ -235,7 +235,9 @@ class Dashboard:
         d = self.c.data
         if d:
             for name, fn in (('sysmon', self.draw_sysmon), ('df', self.draw_df), ('sensors', self.draw_sensors),
-                             ('pacman', self.draw_pacman), ('updates', self.draw_updates), ('proxmox', self.draw_proxmox), ('nfs', self.draw_nfs),
+                             ('pacman', self.draw_pacman), ('updates', self.draw_updates), ('claude', self.draw_claude),
+                             ('builds', self.draw_builds),
+                             ('proxmox', self.draw_proxmox), ('nfs', self.draw_nfs),
                              ('luneta', self.draw_luneta), ('now', self.draw_now), ('forge', self.draw_forge)):
                 if name in self.rects:
                     fn(cr, self.rects[name], d)
@@ -646,7 +648,7 @@ class Dashboard:
             self.panel_error(cr, rect, [('inventory is empty', DIM),
                                         ('install the PVE collector: afterlife deploy/inventory', DIM)])
         elif not items:
-            self.text(cr, x + 12, y + 46, 'all ok ✓', 13, ACCENT, bold=True)
+            self.text(cr, x + 12, y + 46, 'attack surface ok ✓' if u.get('hidden_routine') else 'all ok ✓', 13, ACCENT, bold=True)
             self.text(cr, x + 12, y + 64, f'{u["total"]} items checked', 11, MUTED)
         rows = max(1, (h - 22 - 20 - 26) // 18 + 1)
         if len(items) > rows:
@@ -657,7 +659,8 @@ class Dashboard:
             cr.set_source_rgba(*color, 0.95)
             cr.rectangle(x + 12, yy - 8, 7, 7)
             cr.fill()
-            kind = self.KIND_TAG.get(it.get('kind'), (it.get('kind') or '?')[:3])
+            kind = 'cs' if str(it.get('id') or '').startswith('cs:') else \
+                self.KIND_TAG.get(it.get('kind'), (it.get('kind') or '?')[:3])
             self.text(cr, x + 26, yy, kind, 10, DIM)
             kx = x + 54
             name = self.fit(cr, it.get('name') or it.get('id') or '?', 11, w * 0.5 - (kx - x), bold=True)
@@ -670,6 +673,8 @@ class Dashboard:
         if len(items) > rows:
             self.text(cr, x + 12, yy, f'+{len(items) - rows} more · piwnica-dashboard updates', 10, DIM)
         foot = []
+        if u.get('hidden_routine'):
+            foot.append(f'{u["hidden_routine"]} routine hidden')
         if u.get('hidden_ok'):
             foot.append(f'{u["hidden_ok"]} ok hidden')
         if u.get('age') is not None:
@@ -677,6 +682,44 @@ class Dashboard:
         if u.get('error'):
             foot.append(u['error'])
         self.text(cr, x + 12, y + h - 12, self.fit(cr, ' · '.join(foot), 10, w - 24), 10, WARN if u.get('error') else DIM)
+
+    def draw_claude(self, cr, rect, d):
+        """Claude plan limits; the reset countdowns run every frame, the numbers come every minute."""
+        c = d.get('claude') or {}
+        x, y, w, h = rect
+        self.panel(cr, rect, f'claude{" · " + c["plan"] if c.get("plan") else ""}')
+        if c.get('error') == 'no credentials':
+            self.panel_error(cr, rect, [('no Claude Code login found:', WARN),
+                                        ('run `claude` and log in, the panel', DIM),
+                                        ('reads ~/.claude/.credentials.json', MUTED)])
+            return
+        if 'limits' not in c:
+            err = c.get('error') or 'connecting…'
+            self.panel_error(cr, rect, [(err, DIM if err == 'connecting…' else WARN)])
+            return
+        now = time.time()
+        yy = y + 44
+        rows = list(c['limits'])
+        ex = c.get('extra')
+        if ex and ex.get('pct') is not None:
+            used = f' {ex["used"]:.2f}/{ex["limit"]:.0f}{ex["currency"]}' if ex.get('used') is not None and ex.get('limit') else ''
+            rows.append({'label': 'extra', 'pct': ex['pct'], 'severity': 'normal', 'resets_at': None, 'value': f'{ex["pct"]:.0f}%{used}'})
+        for lim in rows[:max(1, (h - 44 - 20) // 20 + 1)]:
+            pct = lim['pct']
+            color = DANGER if pct >= 90 or lim.get('severity') not in (None, 'normal') else WARN if pct >= 70 else ACCENT
+            left = f' · {fmt_left(lim["resets_at"] - now)}' if lim.get('resets_at') else ''
+            self.row_bar(cr, x + 12, yy, w - 24, lim['label'], pct, lim.get('value') or f'{pct:.0f}%{left}', color, 88)
+            yy += 20
+        if not rows:
+            self.text(cr, x + 12, yy, 'no limits in the response', 11, DIM)
+        foot = []
+        if c.get('error'):
+            foot.append(c['error'])
+        elif c.get('breakdown'):
+            foot.append(' · '.join(f'{r["name"]} {r["pct"]:.0f}%' for r in c['breakdown'][:2]))
+        if c.get('age') is not None:
+            foot.append(f'sync {fmt_ago(now - c["age"], now)}')
+        self.text(cr, x + 12, y + h - 12, self.fit(cr, ' · '.join(foot), 10, w - 24), 10, WARN if c.get('error') else DIM)
 
     def draw_luneta(self, cr, rect, d):
         lu = d.get('luneta') or {}
@@ -785,3 +828,89 @@ class Dashboard:
             self.text(cr, x + 12, y + h - 14, self.fit(cr, f'softstart on · cap {cap or "RP0"}', 11, w - 24), 11, DIM)
         elif s:
             self.text(cr, x + 12, y + h - 14, '⚠ gpu-softstart off: no clock cap (reset risk)', 11, DANGER)
+
+    def draw_builds(self, cr, rect, d):
+        b = d.get('builds') or {}
+        x, y, w, h = rect
+        active = b.get('active', 0)
+        tally = f'{active} active' if active else 'idle'
+        self.panel(cr, rect, f'builds · {tally}')
+        if b.get('error') == 'no token':
+            self.panel_error(cr, rect, [('needs a Forgejo token:', WARN),
+                                        ('git.ariku.pl → Applications → Token,', DIM),
+                                        ('then save it to', DIM),
+                                        ('~/.config/piwnica-dashboard/forgejo.token', MUTED)])
+            return
+        if b.get('error') and not b.get('items'):
+            self.panel_error(cr, rect, [(b['error'], WARN if b['error'] != 'connecting…' else DIM)])
+            return
+        items = b.get('items') or []
+        if not items:
+            self.panel_error(cr, rect, [('no builds monitored', DIM)])
+            return
+
+        now = time.time()
+        avail_h = h - 42 - 18
+        slot_h = max(38, avail_h // len(items))
+        yy = y + 40
+        for it in items[:3]:
+            name = it.get('name') or it.get('repo') or '?'
+            ver = it.get('version') or ''
+            status = it.get('status') or 'unknown'
+
+            if status == 'running':
+                badge = f'● RUN {fmt_eta(it.get("elapsed"))}'
+                col = ACCENT
+            elif status == 'waiting':
+                badge = f'○ WAIT {fmt_eta(it.get("queued_time"))}' if it.get('queued_time') else '○ QUEUED'
+                col = WARN
+            elif status == 'success':
+                dur = f' {fmt_eta(it["duration"])}' if it.get('duration') else ''
+                badge = f'✓ ok{dur}'
+                col = ACCENT
+            elif status == 'failure':
+                dur = f' {fmt_eta(it["duration"])}' if it.get('duration') else ''
+                badge = f'✗ fail{dur}'
+                col = DANGER
+            elif status == 'cancelled':
+                badge = '⊘ cancelled'
+                col = DIM
+            else:
+                badge = status
+                col = DIM
+
+            self.text(cr, x + 12, yy + 11, name, 11, TEXT, bold=True)
+            nw = cr.text_extents(name).x_advance
+            if ver:
+                v_col = ACCENT if status == 'running' else MUTED
+                self.text(cr, x + 12 + nw + 6, yy + 11, self.fit(cr, ver, 10, w - nw - 120), 10, v_col)
+            self.text(cr, x + w - 12, yy + 11, badge, 10, col, bold=True, align='right')
+
+            self.bar(cr, x + 12, yy + 18, w - 24, 6, it.get('pct'), col)
+
+            wf = it.get('workflow') or ''
+            job = it.get('job') or ''
+            details = f'{wf} ({job})' if wf and job else (wf or job or '')
+            if it.get('queued_runs'):
+                details = f'{details} · +{it["queued_runs"]} queued' if details else f'+{it["queued_runs"]} queued'
+            if details:
+                self.text(cr, x + 12, yy + 34, self.fit(cr, details, 9, w * 0.6), 9, DIM)
+
+            right_detail = ''
+            if status in ('success', 'failure', 'cancelled') and it.get('age') is not None:
+                right_detail = fmt_ago(now - it['age'], now)
+            elif it.get('ref') and it.get('ref') != ver:
+                right_detail = it['ref']
+            if right_detail:
+                self.text(cr, x + w - 12, yy + 34, self.fit(cr, right_detail, 9, w * 0.35), 9, DIM, align='right')
+
+            yy += slot_h
+
+        foot = []
+        if b.get('age') is not None:
+            foot.append(f'sync {fmt_ago(now - b["age"], now)}')
+        foot.append('git.ariku.pl')
+        if b.get('error'):
+            foot.append(b['error'])
+        self.text(cr, x + 12, y + h - 12, self.fit(cr, ' · '.join(foot), 10, w - 24), 10,
+                  WARN if b.get('error') else DIM)

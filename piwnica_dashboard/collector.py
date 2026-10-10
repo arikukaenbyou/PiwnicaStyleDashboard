@@ -14,6 +14,8 @@ from .collect.stream import StreamCollector
 from .collect.system import SystemCollector
 from .collect.temps import DEFAULT_LIMIT, VirtualSensor, find_sensors
 from .collect.updates import UpdatesCollector
+from .collect.builds import BuildsCollector
+from .collect.claude import ClaudeCollector
 
 HIST = 60
 HIST_KEYS = ('cpu', 'gpu', 'mem', 'iowait', 'rx', 'tx', 'dl')
@@ -55,10 +57,20 @@ class Collector:
             self.extra['updates'] = UpdatesCollector(al.get('base_url', 'https://ariku.pl'),
                                                      al.get('token_file', '~/.config/piwnica-dashboard/luneta.token'),
                                                      bool(up.get('show_ok', False)), cfg.get('_path'),
-                                                     int(up.get('interval', 300)))
+                                                     int(up.get('interval', 300)), focus=up.get('focus', 'security'))
+        cl = cfg.get('claude', {})
+        if cl.get('enabled', True):
+            self.extra['claude'] = ClaudeCollector(cl.get('credentials', '~/.claude/.credentials.json'),
+                                                   int(cl.get('interval', 60)))
         fg = cfg.get('forge', {})
         if fg.get('enabled', True):
             self.extra['forge'] = ForgeCollector(fg.get('comfyui', 'http://127.0.0.1:8188'))
+        bu = cfg.get('builds', {})
+        if bu.get('enabled', True):
+            self.extra['builds'] = BuildsCollector(bu.get('forgejo_url', 'https://git.ariku.pl'),
+                                                   bu.get('token_file', '~/.config/piwnica-dashboard/forgejo.token'),
+                                                   bu.get('repos', ['afterlife', 'luneta', 'companion_app']),
+                                                   int(bu.get('interval', 30)))
         names = {'afterlife': ('luneta', 'now'), 'stream': ()}
         self.panels = (['pacman'] if self.pacman else []) + [n for k in self.extra for n in names.get(k, (k,))]
 
@@ -220,4 +232,33 @@ class DemoCollector:
                             {'name': 'tasmota-garaż', 'kind': 'device', 'status': 'stale', 'reason': None}]},
             'forge': {'comfy': {'running': 1, 'pending': 2, 'vram_used': 9.1 * 2 ** 30, 'vram_total': 16 * 2 ** 30},
                       'comfy_up': True, 'softstart': {'active': 'active', 'max_mhz': 2000, 'watts': 150}},
+            'claude': {'error': None, 'plan': 'max', 'age': 12.0,
+                       'limits': [{'kind': 'session', 'label': '5h session', 'pct': 51.0, 'severity': 'normal',
+                                   'resets_at': time.time() + 2 * 3600 + 14 * 60},
+                                  {'kind': 'weekly_all', 'label': 'week', 'pct': 52.0, 'severity': 'normal',
+                                   'resets_at': time.time() + 5 * 86400 + 18 * 3600}],
+                       'extra': None, 'breakdown': [{'name': 'Claude Code', 'pct': 99.0}, {'name': 'Cowork', 'pct': 1.0}]},
+            'builds': {
+                'error': None, 'total': 3, 'active': 2, 'age': 4.0,
+                'items': [
+                    {'repo': 'luneta', 'full_name': 'ariku/luneta', 'name': 'Luneta',
+                     'version': 'v0.13.0', 'ref': 'v0.13.0', 'status': 'running',
+                     'workflow': 'ci.yml', 'job': 'test', 'jobs_total': 1, 'jobs_done': 0,
+                     'pct': None, 'elapsed': 580.0 + t, 'duration': None, 'queued_time': None,
+                     'queued_runs': 1, 'age': None, 'commit_title': 'v0.13.0: aktualizacje z Forgejo z fallbackiem na ariku.pl',
+                     'commit_sha': '3a69884b'},
+                    {'repo': 'afterlife', 'full_name': 'ariku/afterlife', 'name': 'Afterlife',
+                     'version': 'v1.0.0', 'ref': 'main', 'status': 'waiting',
+                     'workflow': 'ci.yml', 'job': 'build', 'jobs_total': 1, 'jobs_done': 0,
+                     'pct': 0, 'elapsed': None, 'duration': None, 'queued_time': 2760.0,
+                     'queued_runs': 4, 'age': None, 'commit_title': "Merge pull request 'radar: na żywo + anty-spam' (#68)",
+                     'commit_sha': '7e2c910a'},
+                    {'repo': 'companion_app', 'full_name': 'ariku/companion_app', 'name': 'Companion (Android)',
+                     'version': 'v0.5.0', 'ref': 'ci/forgejo-android', 'status': 'failure',
+                     'workflow': 'android.yml', 'job': 'build', 'jobs_total': 1, 'jobs_done': 1,
+                     'pct': 100, 'elapsed': None, 'duration': 4768.0, 'queued_time': None,
+                     'queued_runs': 0, 'age': 3600.0, 'commit_title': 'ci: setup-android tylko platform-tools',
+                     'commit_sha': '41f82b09'},
+                ],
+            },
         }

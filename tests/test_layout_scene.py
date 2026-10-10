@@ -74,7 +74,7 @@ class TestLayout(unittest.TestCase):
     def test_example_character_keeps_all_panels_off_her(self):
         _, mask = example_mask()
         rects = layout(mask)
-        self.assertTrue({'sysmon', 'df', 'sensors', 'pacman', 'updates', 'proxmox'} <= set(rects))
+        self.assertTrue({'sysmon', 'df', 'sensors', 'pacman', 'updates', 'proxmox', 'claude'} <= set(rects))
         for x, y, w, h in rects.values():
             self.assertFalse(mask[y:y + h, x:x + w].any())
             self.assertTrue(0 <= x and 0 <= y and x + w <= 1200 and y + h <= 1920)
@@ -88,7 +88,7 @@ class TestLayout(unittest.TestCase):
 
     def test_landscape_monitor_without_holdout(self):
         rects = layout(np.zeros((1080, 1920), bool))
-        self.assertEqual(sorted(rects), ['df', 'luneta', 'nfs', 'now', 'pacman', 'proxmox', 'sensors', 'sysmon', 'updates'])
+        self.assertEqual(sorted(rects), ['claude', 'df', 'luneta', 'nfs', 'pacman', 'proxmox', 'sensors', 'sysmon', 'updates'])
         vals = list(rects.values())
         self.assertFalse(any(overlaps(a, b) for i, a in enumerate(vals) for b in vals[i + 1:]))
         self.assertLessEqual(rects['sysmon'][2], 1160)

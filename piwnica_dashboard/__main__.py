@@ -41,6 +41,16 @@ def cmd_detect(cfg):
         print(f'pacman:    {len(pc.state.per_pkg)} past runs in the log, '
               f'{pc.state.sec_per_pkg():.2f} s/package, last -Syu {last["pkgs"] if last else 0} packages; '
               f'pending via: {tools}')
+    if cfg.get('claude', {}).get('enabled', True):
+        from .collect.claude import read_credentials
+        cr = read_credentials(cfg.get('claude', {}).get('credentials', '~/.claude/.credentials.json'))
+        print(f'claude:    {"login found, plan " + str(cr["plan"]) if cr else "no Claude Code login"}')
+    if cfg.get('builds', {}).get('enabled', True):
+        from .collect.builds import read_token
+        bu = cfg.get('builds', {})
+        tok = read_token(bu.get('token_file', '~/.config/piwnica-dashboard/forgejo.token'))
+        repos = ', '.join(bu.get('repos', ['afterlife', 'luneta', 'companion_app']))
+        print(f'builds:    {bu.get("forgejo_url", "https://git.ariku.pl")}, repos: {repos}; token: {"ok" if tok else "missing"}')
 
 
 def cmd_screenshot(args, cfg):
@@ -142,9 +152,11 @@ def cmd_updates(cfg, show_all=False, as_json=False):
     from .collect.updates import UpdatesCollector
 
     al = cfg.get('afterlife', {})
-    show_ok = show_all or bool(cfg.get('updates', {}).get('show_ok', False))
+    up = cfg.get('updates', {})
+    show_ok = show_all or bool(up.get('show_ok', False))
+    focus = 'all' if show_all else up.get('focus', 'security')
     data = UpdatesCollector(al.get('base_url', 'https://ariku.pl'), al.get('token_file', '~/.config/piwnica-dashboard/luneta.token'),
-                            show_ok, background=False).sample()
+                            show_ok, background=False, focus=focus).sample()
     if data.get('error') == 'no token':
         print('Luneta device token missing: add a device on ariku.pl/luneta and save its token to '
               f'{al.get("token_file", "~/.config/piwnica-dashboard/luneta.token")}')
@@ -163,8 +175,70 @@ def cmd_updates(cfg, show_all=False, as_json=False):
             ver = f'{ver} → {it["latestVersion"]}'.strip()
         print(f'  {it["status"]:<9} {it.get("kind") or "?":<9} {it.get("name") or it.get("id"):<28} '
               f'{ver:<24} {it.get("reason") or ""}'.rstrip())
+    if data.get('hidden_routine'):
+        print(f'  … {data["hidden_routine"]} routine updates hidden (IoT, game servers, add-ons, guest packages without '
+              'security fixes; --all, or [updates] focus = "all")')
     if data['hidden_ok']:
         print(f'  … {data["hidden_ok"]} ok hidden (--all, or [updates] show_ok = true)')
+    return 0
+
+
+def cmd_claude(cfg, as_json=False):
+    import json
+    import time
+    from .collect.claude import ClaudeCollector
+    from .draw import fmt_left
+
+    cl = cfg.get('claude', {})
+    data = ClaudeCollector(cl.get('credentials', '~/.claude/.credentials.json'), background=False).sample()
+    if 'limits' not in data:
+        print(f'Claude limits unavailable: {data.get("error")}')
+        return 1
+    if as_json:
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        return 0
+    print(f'Claude{" " + data["plan"] if data.get("plan") else ""} limits:')
+    now = time.time()
+    for lim in data['limits']:
+        reset = f'  resets in {fmt_left(lim["resets_at"] - now)}' if lim.get('resets_at') else ''
+        print(f'  {lim["label"]:<12} {lim["pct"]:>4.0f}%{reset}' + (f'  ({lim["severity"]})' if lim['severity'] != 'normal' else ''))
+    if data.get('extra'):
+        print(f'  extra usage  {data["extra"]["pct"] or 0:>4.0f}%')
+    if data.get('breakdown'):
+        print('  week by product: ' + ', '.join(f'{r["name"]} {r["pct"]:.0f}%' for r in data['breakdown']))
+    return 0
+
+
+def cmd_builds(cfg, as_json=False):
+    import json
+    from .collect.builds import BuildsCollector
+
+    bu = cfg.get('builds', {})
+    data = BuildsCollector(
+        bu.get('forgejo_url', 'https://git.ariku.pl'),
+        bu.get('token_file', '~/.config/piwnica-dashboard/forgejo.token'),
+        bu.get('repos', ['afterlife', 'luneta', 'companion_app']),
+        background=False,
+    ).sample()
+    if data.get('error') == 'no token':
+        print('Forgejo token missing: create one on git.ariku.pl (Settings → Applications) and save to '
+              f'{bu.get("token_file", "~/.config/piwnica-dashboard/forgejo.token")}')
+        return 1
+    if 'items' not in data:
+        print(f'builds unavailable: {data.get("error")}')
+        return 1
+    if as_json:
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        return 0
+    active = data.get('active', 0)
+    print(f'Forgejo CI builds (git.ariku.pl): {active} active / {data.get("total", 0)} monitored')
+    for it in data['items']:
+        dur = f' {it["duration"] / 60:.1f}m' if it.get('duration') else (f' {it["elapsed"] / 60:.1f}m' if it.get('elapsed') else '')
+        wf = it.get('workflow') or ''
+        job = f' ({it["job"]})' if it.get('job') else ''
+        q = f' (+{it["queued_runs"]} queued)' if it.get('queued_runs') else ''
+        print(f'  {it["status"].upper():<9} {it["name"]:<22} {it.get("version") or "?":<10} '
+              f'{wf}{job}{dur}{q}'.rstrip())
     return 0
 
 
@@ -180,6 +254,10 @@ def main(argv=None):
     upd = sub.add_parser('updates', help='what in the homelab needs an update or an intervention (ariku.pl inventory)')
     upd.add_argument('--all', action='store_true', help='also list everything that is ok')
     upd.add_argument('--json', action='store_true', help='print the view as JSON')
+    cla = sub.add_parser('claude', help='Claude plan limits (5h session, week), as /usage shows them')
+    cla.add_argument('--json', action='store_true', help='print the limits as JSON')
+    bld = sub.add_parser('builds', help='Forgejo Actions build progress and versions')
+    bld.add_argument('--json', action='store_true', help='print the builds view as JSON')
     sc = sub.add_parser('screenshot', help='render one frame to a PNG (no window needed)')
     sc.add_argument('out')
     sc.add_argument('--size', default='1200x1920')
@@ -198,6 +276,10 @@ def main(argv=None):
         return cmd_inventory(cfg, args.json)
     if args.cmd == 'updates':
         return cmd_updates(cfg, args.all, args.json)
+    if args.cmd == 'claude':
+        return cmd_claude(cfg, args.json)
+    if args.cmd == 'builds':
+        return cmd_builds(cfg, args.json)
     try:
         os.nice(10)
     except OSError:

@@ -55,7 +55,40 @@ and **keeps off the character on your wallpaper** (holdout mask).
   show_ok = false   # false = only what needs attention (default), true = also everything that is ok
   ```
 
-  `piwnica-dashboard updates` prints the same list in a terminal; `--all` includes the ok ones, `--json` gives raw output.
+  **Focus on the attack surface** (default): security updates, known-vulnerable versions and outages always show;
+  of the rest only the Proxmox host, the router, network services and community-scripts apps (`cs:*`, from LXCs
+  installed with `bash -c "$(curl … community-scripts/ProxmoxVE/main/ct/<app>.sh)"`) stay on screen. IoT firmware,
+  game-server images, HA add-ons and plain package updates in guests are only counted (`N routine hidden`):
+
+  ```toml
+  [updates]
+  focus = "security"   # or "all"; picked up without a restart
+  ```
+
+  `piwnica-dashboard updates` prints the same list in a terminal; `--all` includes the ok ones and the routine
+  updates, `--json` gives raw output. `scripts/update-homelab.py` installs the APT updates on the Proxmox host
+  (`dist-upgrade`) and running LXCs (`upgrade`) after a confirmation, security updates first; community-scripts
+  apps are only listed with their `pct exec <id> -- update` command.
+- **Claude panel** — the plan limits Claude Code's `/usage` shows: the 5-hour session and the week, with live
+  reset countdowns, extra usage when enabled and the week split by product. It reads Claude Code's OAuth token
+  from `~/.claude/.credentials.json` (read-only, never refreshed here -- that would log Claude Code out) and asks
+  `api.anthropic.com/api/oauth/usage` every minute. The endpoint is not documented and may change; an expired
+  token (no Claude Code use for ~8 h) keeps the last numbers on screen. `piwnica-dashboard claude` prints them.
+- **Builds panel (Forgejo Actions)** — monitors long-running CI/CD builds on Forgejo (`git.ariku.pl`),
+  specifically projects like `afterlife`, `luneta` and `companion_app` (Android). It shows their current progress
+  (running stage, elapsed time, progress bar with sweeping beam animation, queued jobs) and detected versions/tags.
+  Uses a Forgejo personal access token (`~/.config/piwnica-dashboard/forgejo.token`, chmod 600) and polls every 30 s:
+
+  ```toml
+  [builds]
+  enabled = true
+  forgejo_url = "https://git.ariku.pl"
+  token_file = "~/.config/piwnica-dashboard/forgejo.token"
+  repos = ["afterlife", "luneta", "companion_app"]
+  interval = 30
+  ```
+
+  `piwnica-dashboard builds` prints current CI build progress and versions in the terminal (`--json` for raw output).
 - **Holdout**: give it a PNG mask (alpha = character) and neither the animation, the tint nor the panels
   touch that area; the panels are placed in the free space around the character, or skipped if there is none.
 - **Cheap**: only changed areas are repainted (~30 fps), rendered client-side so the X server only copies
@@ -104,6 +137,8 @@ System-wide package: `cd packaging && makepkg -si` (after a release tag exists).
 ## Usage
 
 ```sh
+piwnica-dashboard claude      # Claude plan limits (5h session, week)
+piwnica-dashboard builds      # Forgejo CI builds progress and versions
 piwnica-dashboard updates     # what in the homelab needs an update (--all: also the ok ones)
 piwnica-dashboard detect      # what was detected: monitors, holdouts, GPU, network, disks, sensors + limits
 piwnica-dashboard run         # start (the autostart entry does this on login)

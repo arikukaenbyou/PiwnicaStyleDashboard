@@ -7,8 +7,8 @@ import numpy as np
 
 MARGIN = 20
 # extra panels placed after sysmon / df / sensors, at a side, in this order (display.panels)
-EXTRA = ('pacman', 'updates', 'proxmox', 'nfs', 'luneta', 'now', 'forge')
-EXTRA_H = {'pacman': 230, 'updates': 230, 'proxmox': 230, 'nfs': 220, 'luneta': 210, 'now': 200, 'forge': 130}
+EXTRA = ('pacman', 'updates', 'proxmox', 'claude', 'nfs', 'luneta', 'now', 'forge', 'builds')
+EXTRA_H = {'pacman': 230, 'updates': 230, 'claude': 110, 'proxmox': 230, 'nfs': 220, 'luneta': 210, 'now': 200, 'forge': 130, 'builds': 210}
 
 
 def free_spot(mask, w, h, anchor, margin=MARGIN, step=8, rows=(), rows_only=False):
