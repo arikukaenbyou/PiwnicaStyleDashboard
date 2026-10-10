@@ -8,6 +8,8 @@ import numpy as np
 MARGIN = 20
 # extra panels placed after sysmon / df / sensors, at a side, in this order (display.panels)
 EXTRA = ('pacman', 'updates', 'proxmox', 'claude', 'nfs', 'luneta', 'now', 'forge', 'builds')
+# corner panels (df, sensors) drop to this height when the full one does not fit beside the character
+CORNER_MIN_H = 210
 EXTRA_H = {'pacman': 230, 'updates': 230, 'claude': 110, 'proxmox': 230, 'nfs': 220, 'luneta': 210, 'now': 200, 'forge': 130, 'builds': 210}
 
 
@@ -68,8 +70,11 @@ def layout(mask, extra=EXTRA):
         h = EXTRA_H.get(name, h)
         rows = [MARGIN] + [py + ph + MARGIN for _px, py, _pw, ph in out.values()]  # same gap as to the screen edge
         # side panels: first only spots lined up under a placed panel (any width), then the plain grid
-        tries = [(w, True) for w in widths] + [(w, False) for w in widths] if anchor == 'side' else [(w, False) for w in widths]
-        for w, aligned in tries:
+        tries = ([(w, h, True) for w in widths] + [(w, h, False) for w in widths] if anchor == 'side'
+                 else [(w, h, False) for w in widths])
+        if anchor in ('bl', 'br'):  # e.g. a skirt hem in the lower corners: a lower panel before none
+            tries += [(w, CORNER_MIN_H, False) for w in widths]
+        for w, h, aligned in tries:
             if w <= 0:
                 continue
             spot = free_spot(occ, w, h, anchor, rows=rows, rows_only=aligned)

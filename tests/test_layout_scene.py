@@ -81,6 +81,15 @@ class TestLayout(unittest.TestCase):
         vals = list(rects.values())
         self.assertFalse(any(overlaps(a, b) for i, a in enumerate(vals) for b in vals[i + 1:]))
 
+    def test_corner_panels_get_lower_before_they_drop_out(self):
+        mask = np.zeros((1920, 1200), bool)
+        mask[960:1660, 300:900] = True   # a wide skirt: the corners above its hem are too narrow
+        mask[1660:, 500:700] = True      # legs: 260 px under the hem, too low for 250 + margins
+        r = layout(mask, extra=())
+        self.assertEqual((r['df'][3], r['sensors'][3]), (210, 210))
+        self.assertFalse(any(mask[y:y + h, x:x + w].any() for x, y, w, h in r.values()))
+        self.assertEqual(layout(np.zeros((1920, 1200), bool), extra=())['df'][3], 250)  # full height when it fits
+
     def test_no_room_means_no_panel(self):
         wide = np.zeros((1920, 1200), bool)
         wide[100:, :] = True
