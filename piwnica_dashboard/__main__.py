@@ -60,7 +60,7 @@ def cmd_screenshot(args, cfg):
     w, h = (int(x) for x in args.size.split('x'))
     holdout = load_holdout(args.holdout, w, h)
     scene = Scene(w, h, seed=args.seed, tint=float(cfg['display']['tint']), holdout=holdout, panels=cfg['display'].get('panels'),
-                  collector=DemoCollector() if args.demo else None)
+                  collector=DemoCollector() if args.demo else None, fixed=config_mod.fixed_layout(cfg, w, h))
     for _ in range(args.frames):  # let a few pulses appear
         scene.tick()
     out = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)

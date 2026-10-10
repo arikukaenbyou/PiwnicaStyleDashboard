@@ -155,6 +155,17 @@ A PNG with **exactly the monitor's size**; alpha > 0 where the character is (a s
 With `path = "auto"` (default) it is looked up as `holdout-<W>x<H>.png` **next to the monitor's XFCE wallpaper**,
 so keeping the wallpaper and its mask in one folder is enough. See `examples/orin/` for a pair.
 
+The panels are placed automatically along the screen edges. For a wallpaper where you want them
+somewhere else (e.g. a column above the character's head), pin them per monitor size:
+
+```toml
+[layout."1200x1920"]
+now = [380, 330, 380, 200]   # x, y, width, height
+```
+
+A pinned spot that touches the character, leaves the screen or overlaps another panel is ignored and
+the panel is placed automatically. Check the result with `screenshot --demo`.
+
 ## Tests
 
 ```sh
@@ -207,3 +218,5 @@ kliknięcia i omija postać na tapecie (maska holdout).
   animacja na pozostałych monitorach się wyłącza, a dashboard działa dalej (`dashboard_in_games = false`, żeby też gasł).
 - **Maska postaci:** PNG w rozmiarze monitora, gdzie alfa > 0 oznacza postać. Plik
   `holdout-<szer>x<wys>.png` obok tapety XFCE jest wykrywany sam. Przykład jest w `examples/orin/`.
+- **Własny układ:** `[layout."1200x1920"]` z `panel = [x, y, szer, wys]` przypina panele w danym miejscu.
+  Miejsce, które dotyka postaci, wychodzi poza ekran albo nachodzi na inny panel, jest pomijane.

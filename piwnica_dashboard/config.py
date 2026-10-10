@@ -60,6 +60,13 @@ panels = ["pacman", "updates", "builds", "proxmox", "claude", "nfs", "luneta", "
 # a directory = holdout-<W>x<H>.png inside it; a file; or "" for none.
 path = "auto"
 
+# Hand-placed panels for one monitor size, [x, y, width, height] in pixels; the rest are placed
+# automatically. A spot that touches the character, leaves the screen or overlaps another panel is
+# ignored (the log says so), so a new wallpaper never ends up covered.
+# [layout."1200x1920"]
+# sysmon = [20, 20, 1160, 290]
+# now = [380, 330, 380, 200]
+
 [network]
 # "auto" = the interface with the default route.
 interface = "auto"
@@ -184,6 +191,12 @@ def load(path=None, create=True):
         if isinstance(values, dict):
             cfg.setdefault(section, {}).update(values)
     return cfg
+
+
+def fixed_layout(cfg, w, h):
+    """Hand-placed panel spots for a w x h monitor from [layout."WxH"]: {name: [x, y, w, h]}."""
+    spots = (cfg.get('layout') or {}).get(f'{w}x{h}') or {}
+    return {k: v for k, v in spots.items() if isinstance(v, (list, tuple)) and len(v) == 4}
 
 
 def read_value(path, section, key, default=None):

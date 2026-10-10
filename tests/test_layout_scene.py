@@ -90,6 +90,29 @@ class TestLayout(unittest.TestCase):
         self.assertFalse(any(mask[y:y + h, x:x + w].any() for x, y, w, h in r.values()))
         self.assertEqual(layout(np.zeros((1920, 1200), bool), extra=())['df'][3], 250)  # full height when it fits
 
+    def test_fixed_spots_win_and_bad_ones_fall_back(self):
+        _, mask = example_mask()
+        auto = layout(mask)
+        fixed = {'pacman': [20, 330, 300, 200],      # free: pinned
+                 'claude': [500, 1200, 300, 110],    # on the character: ignored
+                 'nfs': [100, 400, 300, 200],        # overlaps the pinned pacman: ignored
+                 'df': [-5, 1700, 400, 200]}         # off screen: ignored
+        r = layout(mask, fixed=fixed)
+        self.assertEqual(r['pacman'], (20, 330, 300, 200))
+        self.assertEqual(list(r)[:3], ['sysmon', 'df', 'sensors'])
+        self.assertNotEqual(r['claude'], (500, 1200, 300, 110))
+        self.assertNotEqual(r.get('nfs'), (100, 400, 300, 200))
+        self.assertEqual(r['df'], auto['df'])
+        vals = list(r.values())
+        self.assertFalse(any(overlaps(a, b) for i, a in enumerate(vals) for b in vals[i + 1:]))
+        self.assertFalse(any(mask[y:y + h, x:x + w].any() for x, y, w, h in vals))
+
+    def test_fixed_layout_from_config(self):
+        cfg = {'layout': {'1200x1920': {'now': [1, 2, 3, 4], 'bad': [1, 2]}}}
+        self.assertEqual(config.fixed_layout(cfg, 1200, 1920), {'now': [1, 2, 3, 4]})
+        self.assertEqual(config.fixed_layout(cfg, 1920, 1080), {})
+        self.assertEqual(config.fixed_layout({}, 1200, 1920), {})
+
     def test_no_room_means_no_panel(self):
         wide = np.zeros((1920, 1200), bool)
         wide[100:, :] = True

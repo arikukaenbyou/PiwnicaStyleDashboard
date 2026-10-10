@@ -94,7 +94,8 @@ def load_holdout(path, w, h):
 
 
 class Scene:
-    def __init__(self, w, h, seed=1000, tint=0.45, holdout=None, collector=None, glyphs=True, bar_fx=True, panels=None):
+    def __init__(self, w, h, seed=1000, tint=0.45, holdout=None, collector=None, glyphs=True, bar_fx=True, panels=None,
+                 fixed=None):
         self.W, self.H = w, h
         self.rnd = random.Random(seed)
         self.tint = tint
@@ -104,7 +105,11 @@ class Scene:
             from .layout import EXTRA
             have = getattr(collector, 'panels', EXTRA)  # only panels with a configured source get space
             extra = [p for p in (panels or EXTRA) if p in have]
-            self.dash = Dashboard(layout(holdout_mask(holdout, w, h), extra), collector, fx=bar_fx)
+            rects = layout(holdout_mask(holdout, w, h), extra, fixed)
+            moved = [n for n in (fixed or {}) if n in rects and tuple(rects[n]) != tuple(fixed[n])]
+            if moved:  # a stale [layout] after a new wallpaper: say so instead of a silent shuffle
+                print(f'layout: {", ".join(moved)} placed automatically, the fixed spot does not fit', flush=True)
+            self.dash = Dashboard(rects, collector, fx=bar_fx)
             self.dash.tick()
             self.dash.render()  # bar positions known from the first frame (bar fx)
         self.glyphs = glyphs and self.dash is None  # glyph columns would run through the panels

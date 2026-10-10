@@ -56,16 +56,47 @@ def panel_sizes(W):
             'side': ([w for w in (440, 400, 360, 320, 300) if w <= W - 2 * MARGIN], 230)}
 
 
-def layout(mask, extra=EXTRA):
+def fixed_spots(mask, fixed, names, margin=MARGIN):
+    """The hand-placed spots {name: (x, y, w, h)} that are usable: on screen, at least a margin
+    away from the character and not overlapping each other. Returns (usable, rejected names)."""
+    H, W = mask.shape
+    occ = mask.copy()
+    out, bad = {}, []
+    for name in names:
+        if name not in fixed:
+            continue
+        try:
+            x, y, w, h = (int(v) for v in fixed[name])
+        except (TypeError, ValueError):
+            bad.append(name)
+            continue
+        inside = w > 0 and h > 0 and x >= 0 and y >= 0 and x + w <= W and y + h <= H
+        if not inside or occ[max(0, y - margin):y + h + margin, max(0, x - margin):x + w + margin].any() \
+                or any(x < px + pw and px < x + w and y < py + ph and py < y + h for px, py, pw, ph in out.values()):
+            bad.append(name)
+            continue
+        out[name] = (x, y, w, h)
+        occ[y:y + h, x:x + w] = True
+    return out, bad
+
+
+def layout(mask, extra=EXTRA, fixed=None):
     """{'sysmon': (x, y, w, h), 'df': ..., 'sensors': ..., 'pacman': ...} -- only panels that fit.
     A placed panel blocks the space for the next ones; the top panel stays in the upper
     half of the screen and the corner panels in the lower half; the extra panels (pacman, proxmox, ...)
-    go last, in the given order, wherever there is room left at a side."""
+    go last, in the given order, wherever there is room left at a side.
+    fixed: hand-placed spots {name: (x, y, w, h)} (config [layout."WxH"]) that win over the automatic
+    placement; one that touches the character, leaves the screen or overlaps another is ignored."""
     H, W = mask.shape
     occ = mask.copy()
-    out = {}
+    order = ('sysmon', 'df', 'sensors') + tuple(extra)
+    out, _bad = fixed_spots(mask, fixed or {}, order)
+    for x, y, w, h in out.values():
+        occ[y:y + h, x:x + w] = True
     sizes = panel_sizes(W)
     for name, anchor in (('sysmon', 'top'), ('df', 'bl'), ('sensors', 'br')) + tuple((e, 'side') for e in extra):
+        if name in out:
+            continue
         widths, h = sizes[anchor]
         h = EXTRA_H.get(name, h)
         rows = [MARGIN] + [py + ph + MARGIN for _px, py, _pw, ph in out.values()]  # same gap as to the screen edge
@@ -84,4 +115,4 @@ def layout(mask, extra=EXTRA):
                 out[name] = (x, y, w, h)
                 occ[y:y + h, x:x + w] = True
                 break
-    return out
+    return {n: out[n] for n in order if n in out}
