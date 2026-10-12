@@ -70,7 +70,9 @@ and **keeps off the character on your wallpaper** (holdout mask).
   (`dist-upgrade`) and running LXCs (`upgrade`) after a confirmation, security updates first; community-scripts
   apps are only listed with their `pct exec <id> -- update` command.
 - **Claude panel** — the plan limits Claude Code's `/usage` shows: the 5-hour session and the week, with live
-  reset countdowns, extra usage when enabled and the week split by product. It reads Claude Code's OAuth token
+  reset countdowns, extra usage when enabled, the week split by product, plus the 5h and weekly limits of the
+  `228` and `228-2` CLIProxyAPI (Antigravity) accounts (`proxy_host = "auto"`, from `ARIKU_GEMINI_URL` in
+  `~/.claude/settings.json`) and ChatGPT / Codex limits (`~/.codex/auth.json`). It reads Claude Code's OAuth token
   from `~/.claude/.credentials.json` (read-only, never refreshed here -- that would log Claude Code out) and asks
   `api.anthropic.com/api/oauth/usage` every minute. The endpoint is not documented and may change; an expired
   token (no Claude Code use for ~8 h) keeps the last numbers on screen. `piwnica-dashboard claude` prints them.

@@ -10,7 +10,8 @@ MARGIN = 20
 EXTRA = ('pacman', 'updates', 'proxmox', 'claude', 'nfs', 'luneta', 'now', 'forge', 'builds')
 # corner panels (df, sensors) drop to this height when the full one does not fit beside the character
 CORNER_MIN_H = 210
-EXTRA_H = {'pacman': 230, 'updates': 230, 'claude': 110, 'proxmox': 230, 'nfs': 220, 'luneta': 210, 'now': 200, 'forge': 130, 'builds': 210}
+EXTRA_H = {'pacman': 230, 'updates': 230, 'claude': 185, 'proxmox': 230, 'nfs': 220, 'luneta': 210, 'now': 200, 'forge': 130, 'builds': 210}
+EXTRA_MIN_H = {'claude': 110}
 
 
 def free_spot(mask, w, h, anchor, margin=MARGIN, step=8, rows=(), rows_only=False):
@@ -103,6 +104,9 @@ def layout(mask, extra=EXTRA, fixed=None):
         # side panels: first only spots lined up under a placed panel (any width), then the plain grid
         tries = ([(w, h, True) for w in widths] + [(w, h, False) for w in widths] if anchor == 'side'
                  else [(w, h, False) for w in widths])
+        if name in EXTRA_MIN_H:
+            mh = EXTRA_MIN_H[name]
+            tries += [(w, mh, True) for w in widths] + [(w, mh, False) for w in widths]
         if anchor in ('bl', 'br'):  # e.g. a skirt hem in the lower corners: a lower panel before none
             tries += [(w, CORNER_MIN_H, False) for w in widths]
         for w, h, aligned in tries:

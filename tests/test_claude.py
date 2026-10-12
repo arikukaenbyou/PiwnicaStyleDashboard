@@ -51,6 +51,52 @@ class TestView(unittest.TestCase):
         self.assertEqual(v['limits'][0]['label'], 'weekly scoped')
         self.assertEqual(v['extra'], {'pct': 40.0, 'used': 20.0, 'limit': 50.0, 'currency': 'USD'})
 
+    def test_antigravity_accounts_228_and_228_2(self):
+        proxy_doc = {
+            'accounts': [
+                {'name': '228', 'groups': [
+                    {'displayName': 'Gemini Models', 'buckets': [
+                        {'window': 'weekly', 'remainingFraction': 0.88, 'resetTime': '2026-10-16T23:00:00Z'},
+                        {'window': '5h', 'remainingFraction': 0.91, 'resetTime': '2026-10-12T22:00:00Z'}]},
+                    {'displayName': 'Claude and GPT models', 'buckets': [
+                        {'window': 'weekly', 'remainingFraction': 1.0, 'resetTime': '2026-10-19T21:00:00Z'},
+                        {'window': '5h', 'remainingFraction': 1.0, 'resetTime': '2026-10-13T02:00:00Z'}]}]},
+                {'name': '228-2', 'groups': [
+                    {'displayName': 'Gemini Models', 'buckets': [
+                        {'window': 'weekly', 'remainingFraction': 0.75, 'resetTime': '2026-10-16T23:00:00Z'},
+                        {'window': '5h', 'remainingFraction': 0.60, 'resetTime': '2026-10-12T22:00:00Z'}]}]},
+            ]
+        }
+        lims, err = claude.antigravity_view(proxy_doc)
+        self.assertIsNone(err)
+        self.assertEqual(
+            [(l['label'], l['pct'], l['pool']) for l in lims],
+            [('228 5h', 9.0, 'gemini'), ('228 week', 12.0, 'gemini'),
+             ('228-2 5h', 40.0, 'gemini'), ('228-2 week', 25.0, 'gemini')],
+        )
+        claude_lims, _ = claude.antigravity_view(proxy_doc, pool='claude')
+        self.assertEqual([(l['label'], l['pct'], l['pool']) for l in claude_lims],
+                         [('228 5h', 0.0, 'claude'), ('228 week', 0.0, 'claude')])
+
+    def test_resolve_proxy_host(self):
+        p = os.path.join(tempfile.mkdtemp(), 'settings.json')
+        with open(p, 'w') as f:
+            json.dump({'env': {'ARIKU_GEMINI_URL': 'http://proxy.example.test:8320'}}, f)
+        self.assertEqual(claude.resolve_proxy_host('auto', settings_path=p, env={}), 'proxy.example.test')
+        self.assertEqual(claude.resolve_proxy_host('custom.host', settings_path=p, env={}), 'custom.host')
+        self.assertIsNone(claude.resolve_proxy_host('', settings_path=p, env={}))
+
+    def test_codex_and_status_cache_limits(self):
+        codex_doc = {'rate_limit': {'limit_reached': False,
+                                    'primary_window': {'used_percent': 2, 'limit_window_seconds': 2592000, 'reset_at': 1794433141},
+                                    'secondary_window': None}}
+        self.assertEqual(claude.codex_view(codex_doc), [
+            {'kind': 'chatgpt_primary', 'label': 'chatgpt', 'pct': 2.0, 'severity': 'normal', 'resets_at': 1794433141.0}
+        ])
+        cache_doc = {'usageData': {'utilization5h': 0.47, 'utilization7d': 0.93, 'reset5hAt': 1791846600, 'reset7dAt': 1792098000}}
+        self.assertEqual([(l['label'], l['pct'], l['severity']) for l in claude.status_cache_limits(cache_doc)],
+                         [('5h session', 47.0, 'normal'), ('week', 93.0, 'critical')])
+
 
 class TestCollector(unittest.TestCase):
     def setUp(self):
@@ -106,6 +152,37 @@ class TestCollector(unittest.TestCase):
         self.now += 120
         v = c.sample()
         self.assertEqual((len(v['limits']), v['error']), (2, 'HTTP 429'))
+
+    def test_collector_merges_228_and_228_2_limits(self):
+        self.write()
+        codex_path = os.path.join(tempfile.mkdtemp(), 'auth.json')
+        with open(codex_path, 'w') as f:
+            json.dump({'tokens': {'access_token': 'tok-gpt', 'account_id': 'acc-1'}}, f)
+        proxy_doc = {
+            'accounts': [
+                {'name': '228', 'groups': [{'displayName': 'Gemini Models', 'buckets': [
+                    {'window': '5h', 'remainingFraction': 0.85, 'resetTime': '2026-10-12T22:00:00Z'},
+                    {'window': 'weekly', 'remainingFraction': 0.80, 'resetTime': '2026-10-16T23:00:00Z'}]}]},
+                {'name': '228-2', 'groups': [{'displayName': 'Gemini Models', 'buckets': [
+                    {'window': '5h', 'remainingFraction': 0.90, 'resetTime': '2026-10-12T22:00:00Z'},
+                    {'window': 'weekly', 'remainingFraction': 0.70, 'resetTime': '2026-10-16T23:00:00Z'}]}]},
+            ]
+        }
+        c = claude.ClaudeCollector(
+            self.path, background=False, fetch=lambda url, *a, **k: (
+                {'rate_limit': {'primary_window': {'used_percent': 5, 'limit_window_seconds': 2592000, 'reset_at': 2000}}}
+                if 'chatgpt.com' in url else DOC),
+            clock=lambda: self.now,
+            proxy_host='proxy.example.test', proxy_fetch=lambda host, **kw: proxy_doc,
+            codex_credentials=codex_path,
+        )
+        v = c.sample()
+        self.assertEqual(
+            [(l['label'], l['pct']) for l in v['limits']],
+            [('5h session', 51.0), ('week', 52.0), ('228 5h', 15.0), ('228 week', 20.0),
+             ('228-2 5h', 10.0), ('228-2 week', 30.0), ('chatgpt', 5.0)],
+        )
+        self.assertIsNone(v['error'])
 
 
 class TestDraw(unittest.TestCase):

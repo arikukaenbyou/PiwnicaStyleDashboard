@@ -24,7 +24,9 @@ DEFAULTS = {
     'afterlife': {'enabled': True, 'base_url': 'https://ariku.pl', 'token_file': '~/.config/piwnica-dashboard/luneta.token'},
     'forge': {'enabled': True, 'comfyui': 'http://127.0.0.1:8188'},
     'updates': {'enabled': True, 'show_ok': False, 'focus': 'security', 'interval': 300},
-    'claude': {'enabled': True, 'credentials': '~/.claude/.credentials.json', 'interval': 60},
+    'claude': {'enabled': True, 'credentials': '~/.claude/.credentials.json', 'interval': 60,
+               'proxy_host': 'auto', 'ssh_user': 'root', 'pool': 'auto',
+               'codex_credentials': '~/.codex/auth.json'},
     'builds': {'enabled': True, 'forgejo_url': 'https://git.ariku.pl',
                'token_file': '~/.config/piwnica-dashboard/forgejo.token',
                'repos': ['afterlife', 'luneta', 'companion_app'],
@@ -160,11 +162,17 @@ repos = ["afterlife", "luneta", "companion_app"]
 interval = 30
 
 [claude]
-# Claude plan limits (5h session, week, extra usage), the numbers Claude Code's /usage shows.
+# Claude plan limits (5h session, week, extra usage), the numbers Claude Code's /usage shows,
+# plus the 228 and 228-2 CLIProxyAPI accounts when proxy_host is set ("auto" reads the host from
+# ARIKU_GEMINI_URL in ~/.claude/settings.json; "" turns the remote accounts off).
 # Reads Claude Code's OAuth token from `credentials` (read-only, never refreshed here) and asks
 # api.anthropic.com/api/oauth/usage -- an undocumented endpoint, the panel says so when it changes.
 enabled = true
 credentials = "~/.claude/.credentials.json"
+codex_credentials = "~/.codex/auth.json"
+proxy_host = "auto"
+ssh_user = "root"
+pool = "auto"
 # Seconds between refreshes.
 interval = 60
 """

@@ -42,9 +42,14 @@ def cmd_detect(cfg):
               f'{pc.state.sec_per_pkg():.2f} s/package, last -Syu {last["pkgs"] if last else 0} packages; '
               f'pending via: {tools}')
     if cfg.get('claude', {}).get('enabled', True):
-        from .collect.claude import read_credentials
-        cr = read_credentials(cfg.get('claude', {}).get('credentials', '~/.claude/.credentials.json'))
-        print(f'claude:    {"login found, plan " + str(cr["plan"]) if cr else "no Claude Code login"}')
+        from .collect.claude import read_codex_credentials, read_credentials, resolve_proxy_host
+        cl = cfg.get('claude', {})
+        cr = read_credentials(cl.get('credentials', '~/.claude/.credentials.json'))
+        ph = resolve_proxy_host(cl.get('proxy_host', 'auto'))
+        cx = read_codex_credentials(cl.get('codex_credentials', '~/.codex/auth.json'))
+        print(f'claude:    {"login found, plan " + str(cr["plan"]) if cr else "no Claude Code login"}'
+              f'{", 228/228-2: configured" if ph else ""}'
+              f'{", chatgpt: login found" if cx else ""}')
     if cfg.get('builds', {}).get('enabled', True):
         from .collect.builds import read_token
         bu = cfg.get('builds', {})
@@ -190,7 +195,14 @@ def cmd_claude(cfg, as_json=False):
     from .draw import fmt_left
 
     cl = cfg.get('claude', {})
-    data = ClaudeCollector(cl.get('credentials', '~/.claude/.credentials.json'), background=False).sample()
+    data = ClaudeCollector(
+        cl.get('credentials', '~/.claude/.credentials.json'),
+        background=False,
+        proxy_host=cl.get('proxy_host', 'auto'),
+        ssh_user=cl.get('ssh_user', 'root'),
+        pool=cl.get('pool', 'auto'),
+        codex_credentials=cl.get('codex_credentials', '~/.codex/auth.json'),
+    ).sample()
     if 'limits' not in data:
         print(f'Claude limits unavailable: {data.get("error")}')
         return 1
@@ -206,6 +218,8 @@ def cmd_claude(cfg, as_json=False):
         print(f'  extra usage  {data["extra"]["pct"] or 0:>4.0f}%')
     if data.get('breakdown'):
         print('  week by product: ' + ', '.join(f'{r["name"]} {r["pct"]:.0f}%' for r in data['breakdown']))
+    if data.get('error'):
+        print(f'  note: {data["error"]}')
     return 0
 
 

@@ -60,8 +60,14 @@ class Collector:
                                                      int(up.get('interval', 300)), focus=up.get('focus', 'security'))
         cl = cfg.get('claude', {})
         if cl.get('enabled', True):
-            self.extra['claude'] = ClaudeCollector(cl.get('credentials', '~/.claude/.credentials.json'),
-                                                   int(cl.get('interval', 60)))
+            self.extra['claude'] = ClaudeCollector(
+                cl.get('credentials', '~/.claude/.credentials.json'),
+                int(cl.get('interval', 60)),
+                proxy_host=cl.get('proxy_host', 'auto'),
+                ssh_user=cl.get('ssh_user', 'root'),
+                pool=cl.get('pool', 'auto'),
+                codex_credentials=cl.get('codex_credentials', '~/.codex/auth.json'),
+            )
         fg = cfg.get('forge', {})
         if fg.get('enabled', True):
             self.extra['forge'] = ForgeCollector(fg.get('comfyui', 'http://127.0.0.1:8188'))
@@ -236,7 +242,17 @@ class DemoCollector:
                        'limits': [{'kind': 'session', 'label': '5h session', 'pct': 51.0, 'severity': 'normal',
                                    'resets_at': time.time() + 2 * 3600 + 14 * 60},
                                   {'kind': 'weekly_all', 'label': 'week', 'pct': 52.0, 'severity': 'normal',
-                                   'resets_at': time.time() + 5 * 86400 + 18 * 3600}],
+                                   'resets_at': time.time() + 5 * 86400 + 18 * 3600},
+                                  {'kind': '228_5h', 'label': '228 5h', 'pct': 14.0, 'severity': 'normal',
+                                   'resets_at': time.time() + 3 * 3600 + 40 * 60, 'pool': 'gemini'},
+                                  {'kind': '228_weekly', 'label': '228 week', 'pct': 28.0, 'severity': 'normal',
+                                   'resets_at': time.time() + 4 * 86400 + 2 * 3600, 'pool': 'gemini'},
+                                  {'kind': '228-2_5h', 'label': '228-2 5h', 'pct': 9.0, 'severity': 'normal',
+                                   'resets_at': time.time() + 4 * 3600 + 10 * 60, 'pool': 'gemini'},
+                                  {'kind': '228-2_weekly', 'label': '228-2 week', 'pct': 19.0, 'severity': 'normal',
+                                   'resets_at': time.time() + 6 * 86400 + 5 * 3600, 'pool': 'gemini'},
+                                  {'kind': 'chatgpt_primary', 'label': 'chatgpt', 'pct': 2.0, 'severity': 'normal',
+                                   'resets_at': time.time() + 29 * 86400}],
                        'extra': None, 'breakdown': [{'name': 'Claude Code', 'pct': 99.0}, {'name': 'Cowork', 'pct': 1.0}]},
             'builds': {
                 'error': None, 'total': 3, 'active': 2, 'age': 4.0,

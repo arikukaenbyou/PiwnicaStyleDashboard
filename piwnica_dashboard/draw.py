@@ -698,18 +698,19 @@ class Dashboard:
             self.panel_error(cr, rect, [(err, DIM if err == 'connecting…' else WARN)])
             return
         now = time.time()
-        yy = y + 44
         rows = list(c['limits'])
         ex = c.get('extra')
         if ex and ex.get('pct') is not None:
             used = f' {ex["used"]:.2f}/{ex["limit"]:.0f}{ex["currency"]}' if ex.get('used') is not None and ex.get('limit') else ''
             rows.append({'label': 'extra', 'pct': ex['pct'], 'severity': 'normal', 'resets_at': None, 'value': f'{ex["pct"]:.0f}%{used}'})
-        for lim in rows[:max(1, (h - 44 - 20) // 20 + 1)]:
+        step = 16 if len(rows) >= 7 else 18 if len(rows) > 3 else 20
+        yy = y + 38 if step == 16 else y + 42 if step == 18 else y + 44
+        for lim in rows[:max(1, (h - (yy - y) - 18) // step + 1)]:
             pct = lim['pct']
             color = DANGER if pct >= 90 or lim.get('severity') not in (None, 'normal') else WARN if pct >= 70 else ACCENT
             left = f' · {fmt_left(lim["resets_at"] - now)}' if lim.get('resets_at') else ''
             self.row_bar(cr, x + 12, yy, w - 24, lim['label'], pct, lim.get('value') or f'{pct:.0f}%{left}', color, 88)
-            yy += 20
+            yy += step
         if not rows:
             self.text(cr, x + 12, yy, 'no limits in the response', 11, DIM)
         foot = []
