@@ -89,6 +89,10 @@ class TestLayout(unittest.TestCase):
         self.assertEqual((r['df'][3], r['sensors'][3]), (210, 210))
         self.assertFalse(any(mask[y:y + h, x:x + w].any() for x, y, w, h in r.values()))
         self.assertEqual(layout(np.zeros((1920, 1200), bool), extra=())['df'][3], 250)  # full height when it fits
+        from piwnica_dashboard.draw import Dashboard
+        dash = Dashboard({'df': r['df']}, DemoCollector())
+        dash.render()
+        self.assertEqual(len(dash.bars), 3)  # all 3 disks still fit in the 210 px corner panel
 
     def test_fixed_spots_win_and_bad_ones_fall_back(self):
         _, mask = example_mask()

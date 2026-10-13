@@ -311,19 +311,23 @@ class Dashboard:
     def draw_df(self, cr, rect, d):
         self.panel(cr, rect, 'df -h')
         x, y, w, h = rect
-        yy = y + 42
-        rows = max(1, (h - 30) // 68)
+        n = len(d['disks'])
+        compact = n >= 3 and h < 234
+        yy = y + (38 if compact else 42)
+        step = 56 if compact else 68
+        bar_y, sub_y = (5, 25) if compact else (8, 32)
+        rows = max(1, (h - 30) // step)
         for dk in d['disks'][:rows]:
             name = dk['name'][:-2] if dk['name'].startswith('nvme') and dk['name'].endswith('n1') else dk['name']
             color = level_color(dk['pct'], 80, 92)
             self.text(cr, x + 12, yy, name, 12, ACCENT, bold=True)
             self.text(cr, x + 72, yy, dk['model'][:24], 11, MUTED)
             self.text(cr, x + w - 12, yy, f'{dk["pct"]:.0f}%', 13, color, bold=True, align='right')
-            self.bar(cr, x + 12, yy + 8, w - 24, 8, dk['pct'], color)
-            self.text(cr, x + 12, yy + 32, f'{dk["used"] / GiB:.0f}/{dk["total"] / GiB:.0f} GB', 11, TEXT)
-            self.text(cr, x + 132, yy + 32, ' '.join(dk['mounts'])[:22], 11, DIM)
-            self.text(cr, x + w - 12, yy + 32, f'R {fmt_rate(dk["rd"])} W {fmt_rate(dk["wr"])}', 10, DIM, align='right')
-            yy += 68
+            self.bar(cr, x + 12, yy + bar_y, w - 24, 8, dk['pct'], color)
+            self.text(cr, x + 12, yy + sub_y, f'{dk["used"] / GiB:.0f}/{dk["total"] / GiB:.0f} GB', 11, TEXT)
+            self.text(cr, x + 132, yy + sub_y, ' '.join(dk['mounts'])[:22], 11, DIM)
+            self.text(cr, x + w - 12, yy + sub_y, f'R {fmt_rate(dk["rd"])} W {fmt_rate(dk["wr"])}', 10, DIM, align='right')
+            yy += step
 
     def draw_sensors(self, cr, rect, d):
         self.panel(cr, rect, 'sensors')
