@@ -702,15 +702,54 @@ class Dashboard:
         ex = c.get('extra')
         if ex and ex.get('pct') is not None:
             used = f' {ex["used"]:.2f}/{ex["limit"]:.0f}{ex["currency"]}' if ex.get('used') is not None and ex.get('limit') else ''
-            rows.append({'label': 'extra', 'pct': ex['pct'], 'severity': 'normal', 'resets_at': None, 'value': f'{ex["pct"]:.0f}%{used}'})
-        step = 16 if len(rows) >= 7 else 18 if len(rows) > 3 else 20
-        yy = y + 38 if step == 16 else y + 42 if step == 18 else y + 44
-        for lim in rows[:max(1, (h - (yy - y) - 18) // step + 1)]:
-            pct = lim['pct']
-            color = DANGER if pct >= 90 or lim.get('severity') not in (None, 'normal') else WARN if pct >= 70 else ACCENT
-            left = f' · {fmt_left(lim["resets_at"] - now)}' if lim.get('resets_at') else ''
-            self.row_bar(cr, x + 12, yy, w - 24, lim['label'], pct, lim.get('value') or f'{pct:.0f}%{left}', color, 88)
-            yy += step
+            rows.append({'label': 'extra', 'short_label': 'extra', 'group': 'Claude', 'pct': ex['pct'],
+                         'severity': 'normal', 'resets_at': None, 'value': f'{ex["pct"]:.0f}%{used}'})
+        groups = []
+        for lim in rows:
+            g = lim.get('group') or 'Claude'
+            if not groups or groups[-1][0] != g:
+                groups.append((g, []))
+            groups[-1][1].append(lim)
+        if len(groups) > 1 and h >= 210:
+            total_lines = len(groups) + len(rows)
+            avail = h - 38 - 20 - 4 * max(0, len(groups) - 1)
+            step = max(13, min(17, avail // max(1, total_lines - 1)))
+            yy = y + 38
+            for gi, (gname, grows) in enumerate(groups):
+                if gi > 0:
+                    yy += 4
+                if yy > y + h - 22:
+                    break
+                hdr = f'{gname} · {c["plan"]}' if gname == 'Claude' and c.get('plan') else gname
+                self.text(cr, x + 12, yy, hdr, 11, ACCENT, bold=True)
+                yy += step
+                for lim in grows:
+                    if yy > y + h - 20:
+                        break
+                    pct = lim['pct']
+                    color = DANGER if pct >= 90 or lim.get('severity') not in (None, 'normal') else WARN if pct >= 70 else ACCENT
+                    left = f' · {fmt_left(lim["resets_at"] - now)}' if lim.get('resets_at') else ''
+                    lbl = lim.get('short_label') or lim['label']
+                    self.row_bar(cr, x + 20, yy, w - 32, lbl, pct, lim.get('value') or f'{pct:.0f}%{left}', color, 88)
+                    yy += step
+        else:
+            if len(rows) >= 10:
+                step = 15 if h >= 210 else 13
+                yy = y + 36 if step == 15 else y + 34
+            elif len(rows) >= 8:
+                step, yy = 14, y + 36
+            elif len(rows) >= 6:
+                step, yy = 16, y + 38
+            elif len(rows) > 3:
+                step, yy = 18, y + 42
+            else:
+                step, yy = 20, y + 44
+            for lim in rows[:max(1, (h - (yy - y) - 16) // step + 1)]:
+                pct = lim['pct']
+                color = DANGER if pct >= 90 or lim.get('severity') not in (None, 'normal') else WARN if pct >= 70 else ACCENT
+                left = f' · {fmt_left(lim["resets_at"] - now)}' if lim.get('resets_at') else ''
+                self.row_bar(cr, x + 12, yy, w - 24, lim['label'], pct, lim.get('value') or f'{pct:.0f}%{left}', color, 96)
+                yy += step
         if not rows:
             self.text(cr, x + 12, yy, 'no limits in the response', 11, DIM)
         foot = []

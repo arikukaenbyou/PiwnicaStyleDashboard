@@ -209,11 +209,17 @@ def cmd_claude(cfg, as_json=False):
     if as_json:
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return 0
-    print(f'Claude{" " + data["plan"] if data.get("plan") else ""} limits:')
     now = time.time()
+    cur_group = None
     for lim in data['limits']:
+        grp = lim.get('group') or 'Claude'
+        if grp != cur_group:
+            cur_group = grp
+            hdr = f'{grp} ({data["plan"]})' if grp == 'Claude' and data.get('plan') else grp
+            print(f'{hdr}:')
+        lbl = lim.get('short_label') or lim['label']
         reset = f'  resets in {fmt_left(lim["resets_at"] - now)}' if lim.get('resets_at') else ''
-        print(f'  {lim["label"]:<12} {lim["pct"]:>4.0f}%{reset}' + (f'  ({lim["severity"]})' if lim['severity'] != 'normal' else ''))
+        print(f'  {lbl:<12} {lim["pct"]:>4.0f}%{reset}' + (f'  ({lim["severity"]})' if lim['severity'] != 'normal' else ''))
     if data.get('extra'):
         print(f'  extra usage  {data["extra"]["pct"] or 0:>4.0f}%')
     if data.get('breakdown'):

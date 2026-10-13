@@ -64,19 +64,24 @@ class TestView(unittest.TestCase):
                 {'name': '228-2', 'groups': [
                     {'displayName': 'Gemini Models', 'buckets': [
                         {'window': 'weekly', 'remainingFraction': 0.75, 'resetTime': '2026-10-16T23:00:00Z'},
-                        {'window': '5h', 'remainingFraction': 0.60, 'resetTime': '2026-10-12T22:00:00Z'}]}]},
+                        {'window': '5h', 'remainingFraction': 0.60, 'resetTime': '2026-10-12T22:00:00Z'}]},
+                    {'displayName': 'Claude and GPT models', 'buckets': [
+                        {'window': 'weekly', 'remainingFraction': 0.90, 'resetTime': '2026-10-19T21:00:00Z'},
+                        {'window': '5h', 'remainingFraction': 0.95, 'resetTime': '2026-10-13T02:00:00Z'}]}]},
             ]
         }
         lims, err = claude.antigravity_view(proxy_doc)
         self.assertIsNone(err)
         self.assertEqual(
-            [(l['label'], l['pct'], l['pool']) for l in lims],
-            [('228 5h', 9.0, 'gemini'), ('228 week', 12.0, 'gemini'),
-             ('228-2 5h', 40.0, 'gemini'), ('228-2 week', 25.0, 'gemini')],
+            [(l['group'], l['short_label'], l['pct'], l['pool']) for l in lims],
+            [('Antigravity', 'gemini 5h', 40.0, 'gemini'),
+             ('Antigravity', 'gemini week', 25.0, 'gemini'),
+             ('Antigravity', 'opus 5.5 5h', 5.0, 'claude'),
+             ('Antigravity', 'opus 5.5 wk', 10.0, 'claude')],
         )
         claude_lims, _ = claude.antigravity_view(proxy_doc, pool='claude')
         self.assertEqual([(l['label'], l['pct'], l['pool']) for l in claude_lims],
-                         [('228 5h', 0.0, 'claude'), ('228 week', 0.0, 'claude')])
+                         [('opus 5.5 5h', 5.0, 'claude'), ('opus 5.5 wk', 10.0, 'claude')])
 
     def test_resolve_proxy_host(self):
         p = os.path.join(tempfile.mkdtemp(), 'settings.json')
@@ -91,7 +96,8 @@ class TestView(unittest.TestCase):
                                     'primary_window': {'used_percent': 2, 'limit_window_seconds': 2592000, 'reset_at': 1794433141},
                                     'secondary_window': None}}
         self.assertEqual(claude.codex_view(codex_doc), [
-            {'kind': 'chatgpt_primary', 'label': 'chatgpt', 'pct': 2.0, 'severity': 'normal', 'resets_at': 1794433141.0}
+            {'kind': 'chatgpt_primary', 'label': 'chatgpt', 'short_label': '30d', 'group': 'ChatGPT',
+             'pct': 2.0, 'severity': 'normal', 'resets_at': 1794433141.0}
         ])
         cache_doc = {'usageData': {'utilization5h': 0.47, 'utilization7d': 0.93, 'reset5hAt': 1791846600, 'reset7dAt': 1792098000}}
         self.assertEqual([(l['label'], l['pct'], l['severity']) for l in claude.status_cache_limits(cache_doc)],
@@ -160,12 +166,20 @@ class TestCollector(unittest.TestCase):
             json.dump({'tokens': {'access_token': 'tok-gpt', 'account_id': 'acc-1'}}, f)
         proxy_doc = {
             'accounts': [
-                {'name': '228', 'groups': [{'displayName': 'Gemini Models', 'buckets': [
-                    {'window': '5h', 'remainingFraction': 0.85, 'resetTime': '2026-10-12T22:00:00Z'},
-                    {'window': 'weekly', 'remainingFraction': 0.80, 'resetTime': '2026-10-16T23:00:00Z'}]}]},
-                {'name': '228-2', 'groups': [{'displayName': 'Gemini Models', 'buckets': [
-                    {'window': '5h', 'remainingFraction': 0.90, 'resetTime': '2026-10-12T22:00:00Z'},
-                    {'window': 'weekly', 'remainingFraction': 0.70, 'resetTime': '2026-10-16T23:00:00Z'}]}]},
+                {'name': '228', 'groups': [
+                    {'displayName': 'Gemini Models', 'buckets': [
+                        {'window': '5h', 'remainingFraction': 0.85, 'resetTime': '2026-10-12T22:00:00Z'},
+                        {'window': 'weekly', 'remainingFraction': 0.80, 'resetTime': '2026-10-16T23:00:00Z'}]},
+                    {'displayName': 'Claude and GPT models', 'buckets': [
+                        {'window': '5h', 'remainingFraction': 1.0, 'resetTime': '2026-10-13T03:00:00Z'},
+                        {'window': 'weekly', 'remainingFraction': 0.95, 'resetTime': '2026-10-19T22:00:00Z'}]}]},
+                {'name': '228-2', 'groups': [
+                    {'displayName': 'Gemini Models', 'buckets': [
+                        {'window': '5h', 'remainingFraction': 0.90, 'resetTime': '2026-10-12T22:00:00Z'},
+                        {'window': 'weekly', 'remainingFraction': 0.70, 'resetTime': '2026-10-16T23:00:00Z'}]},
+                    {'displayName': 'Claude and GPT models', 'buckets': [
+                        {'window': '5h', 'remainingFraction': 0.98, 'resetTime': '2026-10-13T03:00:00Z'},
+                        {'window': 'weekly', 'remainingFraction': 0.92, 'resetTime': '2026-10-19T22:00:00Z'}]}]},
             ]
         }
         c = claude.ClaudeCollector(
@@ -178,9 +192,11 @@ class TestCollector(unittest.TestCase):
         )
         v = c.sample()
         self.assertEqual(
-            [(l['label'], l['pct']) for l in v['limits']],
-            [('5h session', 51.0), ('week', 52.0), ('228 5h', 15.0), ('228 week', 20.0),
-             ('228-2 5h', 10.0), ('228-2 week', 30.0), ('chatgpt', 5.0)],
+            [(l['group'], l['label'], l['pct']) for l in v['limits']],
+            [('Claude', '5h session', 51.0), ('Claude', 'week', 52.0),
+             ('Antigravity', 'gemini 5h', 10.0), ('Antigravity', 'gemini week', 30.0),
+             ('Antigravity', 'opus 5.5 5h', 2.0), ('Antigravity', 'opus 5.5 wk', 8.0),
+             ('ChatGPT', 'chatgpt', 5.0)],
         )
         self.assertIsNone(v['error'])
 
@@ -189,11 +205,12 @@ class TestDraw(unittest.TestCase):
     def test_states_render(self):
         for data in (DemoCollector().data['claude'], {'error': 'no credentials'}, {'error': claude.EXPIRED},
                      dict(claude.view(DOC, 0), error='HTTP 429'), claude.view({}, 0)):
-            c = DemoCollector()
-            c.data = dict(c.data, claude=data)
-            dash = Dashboard({'claude': (0, 0, 320, 110)}, c)
-            dash.render()
-            self.assertIsInstance(dash.cache, cairo.ImageSurface)
+            for h in (110, 360):
+                c = DemoCollector()
+                c.data = dict(c.data, claude=data)
+                dash = Dashboard({'claude': (0, 0, 380, h)}, c)
+                dash.render()
+                self.assertIsInstance(dash.cache, cairo.ImageSurface)
 
 
 if __name__ == '__main__':

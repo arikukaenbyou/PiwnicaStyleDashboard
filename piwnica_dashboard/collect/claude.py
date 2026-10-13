@@ -191,16 +191,36 @@ def status_cache_limits(cache_doc):
             continue
         pct = round(val * 100, 1) if val <= 1.0 else round(val, 1)
         out.append({
-            'kind': kind, 'label': label, 'pct': pct,
+            'kind': kind, 'label': label, 'short_label': label, 'group': 'Claude', 'pct': pct,
             'severity': 'critical' if pct >= 90 else 'warning' if pct >= 70 else 'normal',
             'resets_at': _ts(u.get(rkey)),
         })
     return out
 
 
+def _append_buckets(limits, buckets_list, kind_prefix, label_5h, label_week, short_5h, short_week, pool_name, group_title):
+    buckets = {b.get('window'): b for b in (buckets_list or []) if isinstance(b, dict)}
+    for win_key, kind_suf, label, short in (('5h', '5h', label_5h, short_5h),
+                                            ('weekly', 'weekly', label_week, short_week)):
+        b = buckets.get(win_key)
+        if not b or _num(b.get('remainingFraction')) is None:
+            continue
+        pct = max(0.0, min(100.0, round((1.0 - _num(b['remainingFraction'])) * 1000) / 10))
+        limits.append({
+            'kind': f'{kind_prefix}_{kind_suf}',
+            'label': label,
+            'short_label': short,
+            'group': group_title,
+            'pct': pct,
+            'severity': 'critical' if pct >= 90 else 'warning' if pct >= 70 else 'normal',
+            'resets_at': iso(b.get('resetTime')),
+            'pool': pool_name,
+        })
+
+
 def antigravity_view(doc, pool='auto'):
-    """(limits, error) for the 228 and 228-2 accounts from scan_antigravity_quota()."""
-    limits, errors = [], []
+    """(limits, error) for the shared Antigravity pool (Gemini + Opus/Sonnet 5.5)."""
+    limits, errors, gemini_g, claude_g = [], [], [], []
     for acc in (doc or {}).get('accounts') or []:
         if not isinstance(acc, dict):
             continue
@@ -208,28 +228,24 @@ def antigravity_view(doc, pool='auto'):
         if acc.get('error'):
             errors.append(f'{name}: {acc["error"]}')
             continue
-        groups = [g for g in (acc.get('groups') or []) if isinstance(g, dict)]
-        if pool in ('gemini', 'claude'):
-            groups = [g for g in groups if pool in str(g.get('displayName') or '').lower()]
-        if not groups:
-            continue
-        group = max(groups, key=_group_max_pct)
-        gname = 'claude' if 'claude' in str(group.get('displayName') or '').lower() else 'gemini'
-        buckets = {b.get('window'): b for b in (group.get('buckets') or []) if isinstance(b, dict)}
-        for win_key, suffix in (('5h', '5h'), ('weekly', 'week')):
-            b = buckets.get(win_key)
-            if not b or _num(b.get('remainingFraction')) is None:
+        for g in (acc.get('groups') or []):
+            if not isinstance(g, dict):
                 continue
-            pct = max(0.0, min(100.0, round((1.0 - _num(b['remainingFraction'])) * 1000) / 10))
-            limits.append({
-                'kind': f'{name}_{win_key}',
-                'label': f'{name} {suffix}',
-                'pct': pct,
-                'severity': 'critical' if pct >= 90 else 'warning' if pct >= 70 else 'normal',
-                'resets_at': iso(b.get('resetTime')),
-                'pool': gname,
-            })
-    return limits, (' · '.join(errors) if errors else None)
+            dn = str(g.get('displayName') or '').lower()
+            if 'gemini' in dn:
+                gemini_g.append(g)
+            elif 'claude' in dn:
+                claude_g.append(g)
+    if pool in ('auto', 'gemini') and gemini_g:
+        group = max(gemini_g, key=_group_max_pct)
+        _append_buckets(limits, group.get('buckets'), 'antigravity_gemini',
+                        'gemini 5h', 'gemini week', 'gemini 5h', 'gemini week', 'gemini', 'Antigravity')
+    if pool in ('auto', 'claude') and claude_g:
+        cgrp = max(claude_g, key=_group_max_pct)
+        _append_buckets(limits, cgrp.get('buckets'), 'antigravity_opus_5_5',
+                        'opus 5.5 5h', 'opus 5.5 wk', 'opus 5.5 5h', 'opus 5.5 wk', 'claude', 'Antigravity')
+    err = (' · '.join(errors) if errors and not limits else None)
+    return limits, err
 
 
 def codex_view(doc):
@@ -246,16 +262,18 @@ def codex_view(doc):
         pct = max(0.0, min(100.0, _num(w['used_percent'])))
         secs = _num(w.get('limit_window_seconds')) or 0
         if secs and secs <= 5 * 3600:
-            label = 'chatgpt 5h'
+            label, short = 'chatgpt 5h', '5h'
         elif secs and secs <= 7 * 86400:
-            label = 'chatgpt week'
+            label, short = 'chatgpt week', 'week'
         elif both:
-            label = 'chatgpt 30d'
+            label, short = 'chatgpt 30d', '30d'
         else:
-            label = 'chatgpt'
+            label, short = 'chatgpt', ('30d' if secs >= 20 * 86400 else 'limit')
         out.append({
             'kind': f'chatgpt_{key}',
             'label': label,
+            'short_label': short,
+            'group': 'ChatGPT',
             'pct': pct,
             'severity': 'critical' if pct >= 90 or rl.get('limit_reached') else 'warning' if pct >= 70 else 'normal',
             'resets_at': _ts(w.get('reset_at')),
@@ -270,14 +288,16 @@ def view(doc, now, fetched_at=None):
         if not isinstance(lim, dict) or _num(lim.get('percent')) is None:
             continue
         kind = lim.get('kind') or '?'
-        limits.append({'kind': kind, 'label': LIMIT_LABELS.get(kind, kind.replace('_', ' ')),
+        lbl = LIMIT_LABELS.get(kind, kind.replace('_', ' '))
+        limits.append({'kind': kind, 'label': lbl, 'short_label': lbl, 'group': 'Claude',
                        'pct': _num(lim['percent']), 'severity': lim.get('severity') or 'normal',
                        'resets_at': iso(lim.get('resets_at'))})
     if not limits:
         for key, label in WINDOWS:
             w = doc.get(key)
             if isinstance(w, dict) and _num(w.get('utilization')) is not None:
-                limits.append({'kind': key, 'label': label, 'pct': _num(w['utilization']), 'severity': 'normal',
+                limits.append({'kind': key, 'label': label, 'short_label': label, 'group': 'Claude',
+                               'pct': _num(w['utilization']), 'severity': 'normal',
                                'resets_at': iso(w.get('resets_at'))})
     ex = doc.get('extra_usage') or {}
     extra = None
