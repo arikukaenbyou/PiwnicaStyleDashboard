@@ -40,7 +40,9 @@ w komponentach (idą przez `lib/canon.ts`). Przypomnij te zasady modelowi w prom
 Przy każdym zadaniu:
 
 1. Zbierz CAŁY potrzebny materiał (Read/Grep/Glob): pliki, testy, dokumentację, przykłady
-   stylu z repo.
+   stylu z repo. Gdy zadanie wymaga pobrania dokumentacji lub stron z sieci (w tym JS/SPA),
+   użyj lokalnego Firecrawl: `firecrawl scrape "<url>"` lub `firecrawl map "<url>"`
+   (`$ARIKU_FIRECRAWL_URL`), a pełny wynik wklej do kontekstu dla modelu 1M.
 2. Zbuduj jeden prompt: zadanie, kontekst, zasady repo i oczekiwany format wyniku.
 3. Wywołaj model (`jq` może nie być, użyj `python3`):
 

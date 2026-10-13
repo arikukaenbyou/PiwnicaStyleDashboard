@@ -105,6 +105,7 @@ subagent `gemini-flash` (`.claude/agents/gemini-flash.md`).
 - Po każdej delegacji jedno zdanie oceny: jakość, czas i czy wymagała poprawki.
 - Proxy niedostępne (sesja w chmurze, awaria) oznacza, że robisz sam i mówisz o tym
   w raporcie.
+- **Lokalny Firecrawl (`$ARIKU_FIRECRAWL_URL`)**: self-hosted instancja Firecrawl (z Playwright/Chromium, bez limitów) jest dostępna dla każdego modelu i agenta (Claude Code, VS Code Chat, subagent `gemini-flash`) przez MCP `firecrawl` (`firecrawl_scrape`, `firecrawl_map`, `firecrawl_crawl`, `firecrawl_extract`), CLI `firecrawl scrape <url>` / `firecrawl map <url>` lub REST API (`POST $ARIKU_FIRECRAWL_URL/v1/scrape`). Zmienna `ARIKU_FIRECRAWL_URL` jest w `~/.claude/settings.json` (`env`), nie w repo.
 
 ## 7. Git
 
