@@ -785,12 +785,17 @@ class Dashboard:
             yy += 56
         a = lu.get('analysis')
         if a and a.get('of'):
-            state = 'dead' if a.get('dead') else 'paused' if a.get('paused') else 'running' if a.get('running') else 'stopped'
+            state = 'dead' if a.get('dead') else 'paused' if a.get('paused') else (a.get('stage') or 'running') if a.get('running') else 'stopped'
             pct = 100 * (a.get('mediaDoneS') or 0) / a['mediaTotalS'] if a.get('mediaTotalS') else 100 * (a.get('done') or 0) / a['of']
             eta = f' · ETA {fmt_eta(a.get("etaS"))}' if a.get('running') and a.get('etaS') else ''
             self.text(cr, x + 12, yy + 4, self.fit(cr, f'analiza {a.get("done", 0)}/{a["of"]} · {state}{eta}', 11, w - 24), 11,
                       DANGER if a.get('dead') else TEXT)
             self.bar(cr, x + 12, yy + 10, w - 24, 6, pct, ACCENT if a.get('running') else MUTED)
+            nodes = a.get('nodes')
+            if nodes:
+                nodes_txt = ' · '.join(nodes)
+                prefix = '' if any(':' in n for n in nodes) else 'węzły: '
+                self.text(cr, x + 12, yy + 24, self.fit(cr, f'{prefix}{nodes_txt}', 10, w - 24), 10, DIM)
         hb = lu.get('heartbeat')
         if lu.get('agent_running'):
             agent, color = f'agent on · sync {fmt_ago(hb, time.time()) if hb else "…"}', DIM

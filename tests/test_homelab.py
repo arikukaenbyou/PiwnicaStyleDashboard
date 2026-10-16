@@ -1,6 +1,7 @@
 """NFS shares, Proxmox, the stream check, Luneta / companion and Kuźnia: parsers and views."""
 import json
 import os
+import socket
 import sqlite3
 import tempfile
 import unittest
@@ -246,6 +247,40 @@ class TestAfterlife(unittest.TestCase):
         with open(p, 'w') as f:
             f.write('something else')
         self.assertIsNone(afterlife.read_token(p))
+
+    def test_analysis_nodes(self):
+        self.assertEqual(afterlife.analysis_nodes(progress_data={'nodes': ['ariku-pc', '192.168.1.23']}),
+                         ['ariku-pc', 'felix-pc'])
+        self.assertEqual(afterlife.analysis_nodes(progress_data={'nodes': {
+            'ariku-pc': {'scan': 'video', 'file': '/rec/01.mkv', 'pct': 45},
+            '192.168.1.23': {'scan': 'mowa', 'file': '/rec/02.mkv', 'pct': 80},
+        }}), ['ariku-pc: [video 45%] 01.mkv', 'felix-pc: [mowa 80%] 02.mkv'])
+        self.assertEqual(afterlife.analysis_nodes(progress_data={'peer': '192.168.1.23'}),
+                         [socket.gethostname() or 'ariku-pc', 'felix-pc'])
+        d = tempfile.mkdtemp()
+        db_path = os.path.join(d, 'luneta.db')
+        db = sqlite3.connect(db_path)
+        db.execute('create table kv (key text primary key, value text)')
+        db.execute("insert into kv values ('analysis_speech_remote', '192.168.1.23:7461')")
+        db.commit()
+        db.close()
+        self.assertEqual(afterlife.analysis_nodes(luneta_db_path=db_path),
+                         [socket.gethostname() or 'ariku-pc', 'felix-pc (mowa)'])
+
+    def test_analysis_library_stats_fallback(self):
+        d = tempfile.mkdtemp()
+        db_path = os.path.join(d, 'analiza.db')
+        db = sqlite3.connect(db_path)
+        db.execute('create table recordings (path text primary key, status text, duration real)')
+        db.execute("insert into recordings values ('a.mkv', 'done', 100.0)")
+        db.execute("insert into recordings values ('b.mkv', 'pending', 200.0)")
+        db.commit()
+        db.close()
+        res = afterlife.analysis_progress(os.path.join(d, 'analiza.db.progress.json'), db_path=db_path)
+        self.assertIsNotNone(res)
+        self.assertEqual((res['of'], res['done'], res['mediaDoneS'], res['mediaTotalS']), (2, 1, 100.0, 300.0))
+        self.assertFalse(res['running'])
+        self.assertIn(socket.gethostname() or 'ariku-pc', res['nodes'])
 
 
 class TestForge(unittest.TestCase):

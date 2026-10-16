@@ -209,7 +209,8 @@ class DemoCollector:
                  'critical_left': 0, 'stale': False, 'premium': {'label': 'Annulith', 'amount': 210, 'pulls': 1},
                  'event': {'name': 'Stamina Recharge', 'ends_in': 10 * 86400}, 'advice': None, 'age': 600}],
                 'analysis': {'running': True, 'index': 10, 'of': 102, 'done': 9, 'errors': 0, 'stage': 'audio 95%',
-                             'etaS': 34306, 'mediaDoneS': 88468, 'mediaTotalS': 359109},
+                             'etaS': 34306, 'mediaDoneS': 88468, 'mediaTotalS': 359109,
+                             'nodes': ['ariku-pc', 'felix-pc (mowa)']},
                 'agent_running': True, 'heartbeat': now - 20, 'agent_quit': False, 'remote': True, 'remote_error': None},
             'now': {'error': None, 'now': [
                 {'quest': {'title': 'Odpisać na maile od drukarni', 'type': 'DEADLINE'}, 'estimateMin': 25,

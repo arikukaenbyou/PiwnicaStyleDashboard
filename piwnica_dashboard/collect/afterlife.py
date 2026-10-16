@@ -9,6 +9,7 @@ ariku.pl/luneta as a device) the states are refreshed from the server and /api/c
 import json
 import os
 import re
+import socket
 import sqlite3
 import time
 from datetime import datetime
@@ -17,6 +18,11 @@ from .poll import Poller, get_json
 
 LUNETA_DIR = '~/.local/share/pl.ariku.luneta'
 GAME_NAMES = {'blue_archive': 'Blue Archive', 'nte': 'NTE', 'snowbreak': 'Snowbreak'}
+KNOWN_HOSTS = {
+    '192.168.1.23': 'felix-pc',
+    '192.168.1.228': 'homelab',
+    '127.0.0.1': 'localhost',
+}
 
 
 def iso(s):
@@ -103,16 +109,126 @@ def agent_status(log_path, tail=65536):
     return last_hb, quit_after
 
 
-def analysis_progress(path):
+def resolve_node_name(addr):
+    if not addr:
+        return '?'
+    ip = str(addr).split(':')[0]
+    return KNOWN_HOSTS.get(ip, ip)
+
+
+def format_node_entry(item):
+    if isinstance(item, str):
+        return resolve_node_name(item)
+    if isinstance(item, dict):
+        name = resolve_node_name(item.get('node') or item.get('name') or '?')
+        scan = item.get('scan') or item.get('stage') or item.get('scan_type')
+        filename = item.get('file') or item.get('current')
+        if filename:
+            filename = os.path.basename(filename)
+        pct = f" {int(item['pct'])}%" if 'pct' in item else ""
+        scan_str = f"[{scan}{pct}]" if scan else ""
+        parts = [scan_str, filename or ""]
+        details = " ".join(filter(None, parts))
+        return f"{name}: {details}" if details else name
+    return str(item)
+
+
+def analysis_nodes(luneta_db_path=None, progress_data=None):
+    local_name = socket.gethostname() or 'ariku-pc'
+    p = progress_data or {}
+    if p.get('nodes'):
+        raw = p['nodes']
+        if isinstance(raw, dict):
+            return [format_node_entry({'node': k, **v} if isinstance(v, dict) else {'node': k, 'scan': str(v)}) for k, v in raw.items()]
+        return [format_node_entry(n) for n in raw]
+    if p.get('peer'):
+        peer_name = resolve_node_name(p['peer'])
+        return [local_name, peer_name] if peer_name != local_name else [local_name]
+    if p.get('node'):
+        node_name = resolve_node_name(p['node'])
+        return [local_name, node_name] if node_name != local_name else [local_name]
+
+    kv = {}
+    if luneta_db_path and os.path.exists(os.path.expanduser(luneta_db_path)):
+        c = None
+        try:
+            c = sqlite3.connect(f'file:{os.path.expanduser(luneta_db_path)}?mode=ro', uri=True, timeout=1)
+            kv = dict(c.execute("select key, value from kv where key in ('analysis_agent', 'analysis_speech_remote', 'analysis_agent_tandem')"))
+        except (sqlite3.Error, OSError):
+            pass
+        finally:
+            if c:
+                c.close()
+
+    agent = kv.get('analysis_agent')
+    speech = kv.get('analysis_speech_remote')
+    tandem = kv.get('analysis_agent_tandem') == '1'
+
+    if agent:
+        remote_name = resolve_node_name(agent)
+        return [local_name, remote_name] if tandem else [remote_name]
+    if speech:
+        remote_name = resolve_node_name(speech)
+        return [local_name, f'{remote_name} (mowa)']
+    return [local_name]
+
+
+def library_stats(db_path):
+    path = os.path.expanduser(db_path)
+    if not os.path.exists(path):
+        return None
+    c = None
+    try:
+        c = sqlite3.connect(f'file:{path}?mode=ro', uri=True, timeout=1)
+        row = c.execute(
+            'select count(*), '
+            'count(case when status = "done" then 1 end), '
+            'count(case when status = "error" then 1 end), '
+            'coalesce(sum(case when status = "done" then duration end), 0), '
+            'coalesce(sum(duration), 0) '
+            'from recordings'
+        ).fetchone()
+        if not row or not row[0]:
+            return None
+        total, done, errors, done_s, total_s = row
+        return {
+            'running': False,
+            'paused': False,
+            'dead': False,
+            'of': total,
+            'done': done,
+            'errors': errors,
+            'mediaDoneS': done_s,
+            'mediaTotalS': total_s,
+        }
+    except (sqlite3.Error, OSError):
+        return None
+    finally:
+        if c:
+            c.close()
+
+
+def analysis_progress(path, db_path=None, luneta_db_path=None):
+    p = None
     try:
         with open(os.path.expanduser(path)) as f:
             p = json.load(f)
     except (OSError, ValueError):
-        return None
-    out = {k: p.get(k) for k in ('running', 'paused', 'index', 'of', 'done', 'errors', 'stage', 'etaS',
-                                 'mediaDoneS', 'mediaTotalS')}
-    if out['running'] and p.get('pid') and not os.path.exists(f'/proc/{p["pid"]}'):
-        out['running'], out['dead'] = False, True  # the file says running, its process is gone
+        p = None
+
+    if p:
+        out = {k: p.get(k) for k in ('running', 'paused', 'index', 'of', 'done', 'errors', 'stage', 'etaS',
+                                     'mediaDoneS', 'mediaTotalS', 'nodes', 'node', 'peer', 'by_scan')}
+        if out.get('running') and p.get('pid') and not os.path.exists(f'/proc/{p["pid"]}'):
+            out['running'], out['dead'] = False, True  # the file says running, its process is gone
+    elif db_path:
+        out = library_stats(db_path)
+    else:
+        out = None
+
+    if out:
+        ldb = luneta_db_path or os.path.join(os.path.dirname(os.path.expanduser(path)), 'luneta.db')
+        out['nodes'] = analysis_nodes(ldb, p or out)
     return out
 
 
@@ -143,7 +259,11 @@ class AfterlifeCollector:
             'states': local_states(os.path.join(self.dir, 'luneta.db')),
             'agent': agent_status(os.path.join(self.dir, 'logs', 'luneta.log')),
             'running': agent_running(),
-            'analysis': analysis_progress(os.path.join(self.dir, 'analiza.db.progress.json')),
+            'analysis': analysis_progress(
+                os.path.join(self.dir, 'analiza.db.progress.json'),
+                os.path.join(self.dir, 'analiza.db'),
+                os.path.join(self.dir, 'luneta.db'),
+            ),
         }
 
     def fetch_states(self):
