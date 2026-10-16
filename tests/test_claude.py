@@ -83,6 +83,21 @@ class TestView(unittest.TestCase):
         self.assertEqual([(l['label'], l['pct'], l['pool']) for l in claude_lims],
                          [('opus 5.5 5h', 5.0, 'claude'), ('opus 5.5 wk', 10.0, 'claude')])
 
+    def test_antigravity_gemini_from_models(self):
+        claude_grp = {'displayName': 'Claude and GPT models', 'buckets': [
+            {'window': 'weekly', 'remainingFraction': 0, 'resetTime': '2026-10-19T22:00:00Z'},
+            {'window': '5h', 'remainingFraction': 1, 'resetTime': '2026-10-17T01:00:00Z'}]}
+        doc = {'accounts': [
+            {'name': '228', 'groups': [claude_grp],
+             'models': {'gemini-3.8-flash-tiered': {'remainingFraction': 0.9, 'resetTime': '2026-10-16T21:00:00Z'}}},
+            {'name': '228-2', 'groups': [claude_grp],
+             'models': {'gemini-3.8-flash-tiered': {'remainingFraction': 0.6, 'resetTime': '2026-10-16T21:00:00Z'}}},
+        ]}
+        lims, err = claude.antigravity_view(doc)
+        self.assertIsNone(err)
+        self.assertEqual([(l['label'], l['pct'], l['pool']) for l in lims],
+                         [('gemini 3.8', 40.0, 'gemini'), ('opus 5.5 5h', 0.0, 'claude'), ('opus 5.5 wk', 100.0, 'claude')])
+
     def test_resolve_proxy_host(self):
         p = os.path.join(tempfile.mkdtemp(), 'settings.json')
         with open(p, 'w') as f:

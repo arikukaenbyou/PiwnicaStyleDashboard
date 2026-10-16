@@ -69,8 +69,24 @@ for name, directory in ACCOUNTS:
                 break
         except Exception as e:
             last_err = str(e).replace(tok, '…')[:80]
+    models = {}
     if groups is not None:
-        out.append({'name': name, 'groups': groups})
+        # Gemini quota is no longer a group in the summary; it is only in each model's quotaInfo
+        for url in URLS:
+            try:
+                req = urllib.request.Request(url.replace('retrieveUserQuotaSummary', 'fetchAvailableModels'),
+                                             data=body, headers=headers, method='POST')
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    mdoc = json.loads(resp.read().decode())
+                for mid, m in (mdoc.get('models') or {}).items():
+                    qi = m.get('quotaInfo') if isinstance(m, dict) else None
+                    if mid.startswith('gemini-') and isinstance(qi, dict):
+                        models[mid] = {'remainingFraction': qi.get('remainingFraction'),
+                                       'resetTime': qi.get('resetTime')}
+                break
+            except Exception:
+                pass
+        out.append({'name': name, 'groups': groups, 'models': models})
     else:
         out.append({'name': name, 'error': last_err or 'quota unavailable'})
 claude_cache = None
@@ -220,7 +236,7 @@ def _append_buckets(limits, buckets_list, kind_prefix, label_5h, label_week, sho
 
 def antigravity_view(doc, pool='auto'):
     """(limits, error) for the shared Antigravity pool (Gemini + Opus/Sonnet 5.5)."""
-    limits, errors, gemini_g, claude_g = [], [], [], []
+    limits, errors, gemini_g, claude_g, gemini_m = [], [], [], [], []
     for acc in (doc or {}).get('accounts') or []:
         if not isinstance(acc, dict):
             continue
@@ -228,6 +244,11 @@ def antigravity_view(doc, pool='auto'):
         if acc.get('error'):
             errors.append(f'{name}: {acc["error"]}')
             continue
+        models = acc.get('models') if isinstance(acc.get('models'), dict) else {}
+        # one shared value for all gemini-* models; prefer 3.8 Flash, else any
+        m = models.get('gemini-3.8-flash-tiered') or next(iter(models.values()), None)
+        if isinstance(m, dict) and _num(m.get('remainingFraction')) is not None:
+            gemini_m.append(m)
         for g in (acc.get('groups') or []):
             if not isinstance(g, dict):
                 continue
@@ -240,6 +261,14 @@ def antigravity_view(doc, pool='auto'):
         group = max(gemini_g, key=_group_max_pct)
         _append_buckets(limits, group.get('buckets'), 'antigravity_gemini',
                         'gemini 5h', 'gemini week', 'gemini 5h', 'gemini week', 'gemini', 'Antigravity')
+    elif pool in ('auto', 'gemini') and gemini_m:
+        m = max(gemini_m, key=lambda x: 1.0 - _num(x['remainingFraction']))
+        pct = max(0.0, min(100.0, round((1.0 - _num(m['remainingFraction'])) * 1000) / 10))
+        limits.append({
+            'kind': 'antigravity_gemini', 'label': 'gemini 3.8', 'short_label': 'gemini 3.8', 'group': 'Antigravity',
+            'pct': pct, 'severity': 'critical' if pct >= 90 else 'warning' if pct >= 70 else 'normal',
+            'resets_at': iso(m.get('resetTime')), 'pool': 'gemini',
+        })
     if pool in ('auto', 'claude') and claude_g:
         cgrp = max(claude_g, key=_group_max_pct)
         _append_buckets(limits, cgrp.get('buckets'), 'antigravity_opus_5_5',
