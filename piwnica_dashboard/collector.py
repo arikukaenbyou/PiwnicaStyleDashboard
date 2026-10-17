@@ -184,7 +184,8 @@ class DemoCollector:
                     {'name': 'archive', 'target': '/mnt/archive', 'source': '10.0.0.5:/srv/archive', 'server': '10.0.0.5',
                      'mounted': False, 'rd': 0.0, 'wr': 0.0}],
             'proxmox': {'node': 'pve', 'cpu': 9 + 6 * math.sin(t / 5), 'cores': 4, 'load': [0.6, 0.6, 0.6],
-                        'mem_used': 22.6 * 2 ** 30, 'mem_total': 39 * 2 ** 30, 'uptime': 703_000, 'guests': 26, 'running': 23,
+                        'mem_used': 22.6 * 2 ** 30, 'mem_total': 39 * 2 ** 30,
+                        'swap_used': 1.3 * 2 ** 30, 'swap_total': 8 * 2 ** 30, 'uptime': 703_000, 'guests': 26, 'running': 23,
                         'down': ['bazarr', 'lidarr', 'readarr'], 'error': None, 'age': 2.0,
                         'top': [{'name': 'portfolio', 'cpu': 4.0, 'mem': 6 * 2 ** 30}],
                         'storages': [{'name': n, 'pct': p, 'used': 0, 'total': 0, 'active': True}

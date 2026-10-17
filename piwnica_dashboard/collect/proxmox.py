@@ -68,7 +68,7 @@ def summarize_disks(disks):
 
 def summarize(status, resources, node, storage_config=(), disks=()):
     """The panel's view of /nodes/<node>/status + /cluster/resources."""
-    mem = status.get('memory') or {}
+    mem, swap = status.get('memory') or {}, status.get('swap') or {}
     guests = [r for r in resources if r.get('type') in ('lxc', 'qemu') and not r.get('template')]
     storages = [r for r in resources if r.get('type') == 'storage' and r.get('node', node) == node]
     running = [g for g in guests if g.get('status') == 'running']
@@ -78,6 +78,7 @@ def summarize(status, resources, node, storage_config=(), disks=()):
         'cores': (status.get('cpuinfo') or {}).get('cpus'),
         'load': [float(x) for x in status.get('loadavg') or []],
         'mem_used': mem.get('used', 0), 'mem_total': mem.get('total', 0),
+        'swap_used': swap.get('used', 0), 'swap_total': swap.get('total', 0),
         'uptime': status.get('uptime', 0),
         'guests': len(guests), 'running': len(running),
         'down': sorted(g.get('name') or str(g.get('vmid')) for g in guests if g.get('status') != 'running'),

@@ -539,14 +539,20 @@ class Dashboard:
         mp = 100 * p['mem_used'] / p['mem_total'] if p['mem_total'] else 0
         self.row_bar(cr, x + 12, y + 62, iw, 'RAM', mp, f'{p["mem_used"] / GiB:.0f}/{p["mem_total"] / GiB:.0f} GB',
                      level_color(mp, 80, 92), 46)
+        if p.get('swap_total'):
+            sp = 100 * p['swap_used'] / p['swap_total']
+            self.row_bar(cr, x + 12, y + 80, iw, 'SWAP', sp,
+                         f'{p["swap_used"] / GiB:.1f}/{p["swap_total"] / GiB:.0f} GB', level_color(sp, 50, 80), 46)
+        else:
+            self.row_bar(cr, x + 12, y + 80, iw, 'SWAP', 0, 'off', DIM, 46)
         down = p.get('down') or []
-        self.text(cr, x + 12, y + 86, f'{p["running"]}/{p["guests"]} up', 11, ACCENT if not down else WARN, bold=True)
-        self.text(cr, x + 100, y + 86, self.fit(cr, ('down: ' + ' '.join(down)) if down else f'up {fmt_uptime(p["uptime"])}',
-                                                11, w - 112), 11, WARN if down else DIM)
-        yy = y + 108
+        self.text(cr, x + 12, y + 100, f'{p["running"]}/{p["guests"]} up', 11, ACCENT if not down else WARN, bold=True)
+        self.text(cr, x + 100, y + 100, self.fit(cr, ('down: ' + ' '.join(down)) if down else f'up {fmt_uptime(p["uptime"])}',
+                                                 11, w - 112), 11, WARN if down else DIM)
+        yy = y + 118
         for stg in (p.get('storages') or [])[:4]:
             self.row_bar(cr, x + 12, yy, iw, stg['name'], stg['pct'], f'{stg["pct"]:.0f}%', None, 84)
-            yy += 18
+            yy += 16
         audit = p.get('inventory_summary') or {}
         if audit and (p.get('inventory_at') or p.get('inventory_error')):
             smart_color = DANGER if audit['smart_issues'] else DIM

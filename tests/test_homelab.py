@@ -66,7 +66,8 @@ class TestNfs(unittest.TestCase):
 
 class TestProxmox(unittest.TestCase):
     STATUS = {'cpu': 0.25, 'loadavg': ['0.5', '0.6', '0.7'], 'uptime': 3600, 'cpuinfo': {'cpus': 4},
-              'memory': {'used': 2 * 2 ** 30, 'total': 8 * 2 ** 30}}
+              'memory': {'used': 2 * 2 ** 30, 'total': 8 * 2 ** 30},
+              'swap': {'used': 2 ** 29, 'total': 4 * 2 ** 30, 'free': 3.5 * 2 ** 30}}
     RES = [{'type': 'lxc', 'vmid': 100, 'name': 'db', 'status': 'running', 'cpu': 0.1, 'mem': 5},
            {'type': 'qemu', 'vmid': 101, 'name': 'win', 'status': 'stopped'},
            {'type': 'lxc', 'vmid': 9000, 'name': 'tpl', 'status': 'stopped', 'template': 1},
@@ -84,6 +85,8 @@ class TestProxmox(unittest.TestCase):
     def test_summary(self):
         s = proxmox.summarize(self.STATUS, self.RES, 'pve', self.STORAGE_CONFIG, self.DISKS)
         self.assertEqual((s['cpu'], s['guests'], s['running'], s['down']), (25.0, 2, 1, ['win']))
+        self.assertEqual((s['swap_used'], s['swap_total']), (2 ** 29, 4 * 2 ** 30))
+        self.assertEqual(proxmox.summarize({}, [], 'pve')['swap_total'], 0)  # node without swap
         self.assertEqual([(x['name'], x['pct']) for x in s['storages']], [('nas1', 99.0), ('local', 10.0)])
         self.assertEqual(s['nfs'], [{'name': 'nas1', 'source': '192.168.1.100:/tank/media', 'used': 99, 'total': 100,
                                      'pct': 99.0, 'active': True}])
