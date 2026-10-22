@@ -72,8 +72,9 @@ class Setting:
 class UpdatesCollector:
     def __init__(self, base_url='https://ariku.pl', token_file='~/.config/piwnica-dashboard/luneta.token',
                  show_ok=False, config_path=None, interval=300, background=True, fetch=get_json, clock=time.time,
-                 focus='security'):
+                 focus='security', status=None):
         self.base, self.fetch, self.clock = base_url.rstrip('/'), fetch, clock
+        self.status = status  # UpdaterStatusCollector: the ariku.pl updater's run status, shown on top
         self.token_file = token_file
         self.token = read_token(token_file)
         self.show_ok = Setting(config_path, 'show_ok', show_ok)
@@ -84,6 +85,12 @@ class UpdatesCollector:
         return self.fetch(f'{self.base}/api/infra/inventory', {'Authorization': f'Bearer {self.token}'}, timeout=10)
 
     def sample(self):
+        out = self._sample_inventory()
+        if self.status is not None:
+            out['updater'] = self.status.sample()
+        return out
+
+    def _sample_inventory(self):
         if self.token is None:
             self.token = read_token(self.token_file)  # created later: picked up without a restart
         if not self.token:

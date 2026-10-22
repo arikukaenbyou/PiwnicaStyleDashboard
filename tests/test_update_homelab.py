@@ -1,72 +1,75 @@
-"""scripts/update-homelab.py: reading apt simulations (security, removals, kept back) and the community-scripts app."""
+"""scripts/update-homelab.py: read-only status of the ariku.pl updater; plan/apply only point to the panel."""
+import contextlib
 import importlib.util
+import io
 import os
+import tempfile
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location(
     'update_homelab', os.path.join(os.path.dirname(__file__), '..', 'scripts', 'update-homelab.py'))
 uh = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(uh)
 
-# the remote helpers run on the node; compile them here to test the parsers they share
-remote = {}
-exec(compile(uh.REMOTE_SCRIPT.split('\ndef main():')[0], 'remote', 'exec'), remote)
-
-APT_UPGRADE = """\
-Reading package lists...
-Calculating upgrade...
-The following packages have been kept back:
-  linux-image-amd64 systemd
-The following packages will be upgraded:
-  libssl3 openssl tzdata
-3 upgraded, 0 newly installed, 0 to remove and 2 not upgraded.
-Inst libssl3 [3.0.15-1~deb12u1] (3.0.17-1~deb12u2 Debian-Security:12/stable-security [amd64])
-Inst openssl [3.0.15-1~deb12u1] (3.0.17-1~deb12u2 Debian:12.11/stable, Debian-Security:12/stable-security [amd64])
-Inst tzdata [2024b-0+deb12u1] (2025b-0+deb12u1 Debian:12.11/stable-updates [all])
-Conf libssl3 (3.0.17-1~deb12u2 Debian-Security:12/stable-security [amd64])
-"""
-UBUNTU = 'Inst curl [7.81.0-1ubuntu1.18] (7.81.0-1ubuntu1.20 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])'
-DIST = """\
-Remv proxmox-ve [8.4.0]
-Inst pve-manager [8.4.0] (8.4.14 Proxmox:8.4/bookworm [amd64])
-"""
+from piwnica_dashboard import __main__ as cli  # noqa: E402
+from piwnica_dashboard.collect import updater_status as us  # noqa: E402
 
 
-class TestSimulation(unittest.TestCase):
-    def test_remote_split(self):
-        lines, kept = remote['simulation'](APT_UPGRADE)
-        self.assertEqual(len(lines), 3)
-        self.assertEqual(kept, ['linux-image-amd64', 'systemd'])
+class TestScript(unittest.TestCase):
+    def test_plan_and_apply_install_nothing(self):
+        for mode in ('plan', 'apply'):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), mock.patch.object(uh, 'cmd_updater') as status:
+                self.assertEqual(uh.main([mode]), 2)
+            status.assert_not_called()
+            self.assertIn('SYSTEM → Updater', err.getvalue())
 
-    def test_security_and_removals(self):
-        p = uh.parse_simulation(remote['simulation'](APT_UPGRADE)[0] + [UBUNTU])
-        self.assertEqual(p['packages'], ['libssl3', 'openssl', 'tzdata', 'curl'])
-        self.assertEqual(p['security'], ['libssl3', 'openssl', 'curl'])
-        self.assertEqual(p['removed'], [])
-        lines = remote['simulation'](DIST)[0]
-        self.assertEqual(uh.parse_simulation(lines)['removed'], ['proxmox-ve'])
-        self.assertEqual(remote['removes_protected'](lines), ['proxmox-ve'])
+    def test_no_remote_apt_runner_left(self):
+        self.assertFalse(hasattr(uh, 'REMOTE_SCRIPT'))
+        self.assertFalse(hasattr(uh, 'ssh_call'))
 
-    def test_most_security_first(self):
-        plan = {'targets': [{'key': 'lxc:101', 'name': 'LXC 101 a', 'lines': [UBUNTU]},
-                            {'key': 'host', 'name': 'Proxmox host', 'lines': ['Inst tzdata [1] (2 Debian:12/stable [all])']},
-                            {'key': 'lxc:102', 'name': 'LXC 102 b',
-                             'lines': remote['simulation'](APT_UPGRADE)[0]}]}
-        self.assertEqual([t['key'] for t in uh.summarize(plan)], ['lxc:102', 'lxc:101', 'host'])
-
-    def test_apply_options(self):
-        self.assertIn('Dpkg::Options::=--force-confold', remote['CONFFILES'])
-        self.assertIn('DPkg::Lock::Timeout=300', remote['LOCK'])
+    def test_status_is_the_default(self):
+        with mock.patch.object(uh, 'cmd_updater', return_value=0) as status, \
+                mock.patch.object(uh.config_mod, 'load', return_value={}):
+            self.assertEqual(uh.main([]), 0)
+        status.assert_called_once_with({}, False)
 
 
-class TestCommunityScript(unittest.TestCase):
-    def test_slug_from_usr_bin_update(self):
-        body = ('set -a; [ -f /etc/profile.d/90-http-proxy.sh ] && . /etc/profile.d/90-http-proxy.sh; set +a; '
-                'bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/forgejo-runner.sh)"')
-        remote['run'] = lambda args, timeout=900: (0, body, '')
-        self.assertEqual(remote['community_script'](['pct', 'exec', '102', '--']), 'forgejo-runner')
-        remote['run'] = lambda args, timeout=900: (1, '', 'No such file')
-        self.assertIsNone(remote['community_script'](['pct', 'exec', '103', '--']))
+class TestCmdUpdater(unittest.TestCase):
+    def run_cli(self, sample):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), \
+                mock.patch.object(us.UpdaterStatusCollector, 'sample', return_value=sample):
+            rc = cli.cmd_updater({'updates': {'status_token_file': os.path.join(tempfile.mkdtemp(), 't')}})
+        return rc, out.getvalue()
+
+    def test_missing_token_explains_where_it_goes(self):
+        rc, out = self.run_cli({'error': 'no token'})
+        self.assertEqual(rc, 1)
+        self.assertIn('SYSTEM_UPDATER_STATUS_TOKEN', out)
+
+    def test_transport_error(self):
+        rc, out = self.run_cli({'error': 'OSError: HTTP 503 Lemuria niedostępna'})
+        self.assertEqual(rc, 1)
+        self.assertIn('HTTP 503', out)
+
+    def test_failed_run_exits_nonzero_and_shows_the_error(self):
+        v = us.view({'current': {'id': 'r', 'kind': 'apply', 'state': 'failed', 'startedAt': '2026-10-22T17:00:00Z',
+                                 'durationSeconds': 61, 'error': 'dpkg przerwany', 'logTail': ['[host] E: dpkg']},
+                     'targets': [{'key': 'host', 'name': 'Proxmox host', 'state': 'failed', 'error': 'dpkg przerwany'}]},
+                    100.0, 90.0, 300)
+        v['error'] = None
+        rc, out = self.run_cli(v)
+        self.assertEqual(rc, 1)
+        self.assertIn('install: failed', out)
+        self.assertIn('dpkg przerwany', out)
+        self.assertIn('1m01s', out)
+
+    def test_no_runs(self):
+        rc, out = self.run_cli(dict(us.view({}, 100.0, 90.0, 300), error=None))
+        self.assertEqual(rc, 0)
+        self.assertIn('no updater runs yet', out)
 
 
 if __name__ == '__main__':

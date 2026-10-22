@@ -635,6 +635,76 @@ class Dashboard:
                 'router': 'net', 'pc': 'pc', 'device': 'iot'}
     UPDATE_COLOR = {'critical': DANGER, 'attention': WARN, 'stale': WARN, 'update': ACCENT, 'unknown': DIM, 'ok': DIM}
 
+    RUN_COLOR = {'running': ACCENT, 'succeeded': DIM, 'failed': DANGER, 'stale': WARN}
+    RUN_LABEL = {'running': 'running', 'succeeded': 'ok', 'failed': 'FAILED', 'stale': 'stuck?'}
+    TARGET_COLOR = {'succeeded': DIM, 'failed': DANGER, 'running': ACCENT, 'unknown': MUTED}
+
+    def draw_updater_status(self, cr, x, y, w, s):
+        """The ariku.pl updater's last/current run above the inventory list; returns the height it used."""
+        if not s:
+            return 0
+        yy = y + 42
+        if 'run' not in s:
+            if s.get('error') == 'no token':
+                msg = 'apt updater: no status token (~/.config/piwnica-dashboard/updater-status.token)'
+            else:
+                msg = f'apt updater: {s.get("error") or "connecting…"}'
+            self.text(cr, x + 12, yy, self.fit(cr, msg, 10, w - 24), 10, DIM)
+            return 20
+        run = s['run']
+        if not run:
+            lc = s.get('last_check')
+            msg = 'apt updater: no runs yet' if not lc else 'apt updater: no runs'
+            self.text(cr, x + 12, yy, msg, 10, DIM)
+            return 20
+        now = time.time()
+        state = run['state']
+        color = self.RUN_COLOR.get(state, DIM)
+        cr.set_source_rgba(*color, 0.95)
+        cr.rectangle(x + 12, yy - 8, 7, 7)
+        cr.fill()
+        kind = 'install' if run.get('kind') == 'apply' else 'check'
+        when = run.get('finished') or run.get('started')
+        parts = [f'{kind} {self.RUN_LABEL.get(state, state)}']
+        if run.get('duration') is not None:
+            parts.append(fmt_left(run['duration']) if run['duration'] >= 60 else f'{int(run["duration"])}s')
+        if state not in ('running', 'stale') and when:
+            parts.append(fmt_ago(when, now))
+        head = ' · '.join(parts)
+        self.text(cr, x + 26, yy, head, 11, TEXT if state != 'succeeded' else MUTED, bold=True)
+        hx = x + 26 + cr.text_extents(head).x_advance + 10
+        detail = run.get('stage') if state in ('running', 'stale') else run.get('error') if state == 'failed' else None
+        lc = s.get('last_check')
+        if detail is None and lc and lc.get('pending'):
+            detail = f'{lc["pending"]} to update' + (f', {lc["security"]} security' if lc.get('security') else '')
+        if s.get('stale'):
+            detail = f'status {fmt_ago(now - s["age"], now)} · {detail or ""}'.rstrip(' ·')
+        if detail:
+            dc = WARN if s.get('stale') or state == 'stale' else color if state == 'failed' else DIM
+            self.text(cr, x + w - 12, yy, self.fit(cr, detail, 10, x + w - 12 - hx), 10, dc, align='right')
+        used = 20
+        if state in ('running', 'failed', 'stale'):
+            targets = [t for t in s.get('targets') or [] if state != 'failed' or t['state'] != 'succeeded'] or s.get('targets') or []
+            if targets:
+                tx, ty = x + 26, yy + 16
+                for t in targets:  # a colored square per target, like the inventory rows below
+                    mc = self.TARGET_COLOR.get(t['state'], MUTED)
+                    label = t['name'] + ('?' if t['state'] == 'unknown' else '')
+                    self.fit(cr, label, 10, w)  # selects the font so the width below is measured in it
+                    tw = cr.text_extents(label).x_advance + 10
+                    if tx + tw > x + w - 12:
+                        break
+                    cr.set_source_rgba(*mc, 0.95)
+                    cr.rectangle(tx, ty - 7, 6, 6)
+                    cr.fill()
+                    self.text(cr, tx + 10, ty, label, 10, mc)
+                    tx += tw + 12
+                used += 16
+            for line in (run.get('log') or [])[-2:]:
+                self.text(cr, x + 26, yy + used - 4, self.fit(cr, line, 9, w - 38), 9, DIM)
+                used += 13
+        return used + 4
+
     def draw_updates(self, cr, rect, d):
         """ariku.pl inventory: what needs an update or an intervention, most urgent first."""
         u = d.get('updates') or {}
@@ -644,6 +714,10 @@ class Dashboard:
         tally = ' · '.join(f'{n} {label}' for n, label in ((c.get('critical', 0), 'crit'), (warn, 'warn'),
                                                            (c.get('update', 0), 'upd')) if n)
         self.panel(cr, rect, f'updates{" · " + tally if tally else ""}')
+        shift = self.draw_updater_status(cr, x, y, w, u.get('updater'))
+        if shift:  # the inventory below the updater's status
+            y, h = y + shift, h - shift
+            rect = (x, y, w, h)
         if u.get('error') == 'no token':
             self.panel_error(cr, rect, [('needs a Luneta device token:', WARN),
                                         ('ariku.pl/luneta → add device "Dashboard",', DIM),
