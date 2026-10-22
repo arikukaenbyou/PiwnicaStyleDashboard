@@ -14,6 +14,7 @@ from .collect.stream import StreamCollector
 from .collect.system import SystemCollector
 from .collect.temps import DEFAULT_LIMIT, VirtualSensor, find_sensors
 from .collect.updates import UpdatesCollector
+from .collect.updater_status import UpdaterStatusCollector
 from .collect.builds import BuildsCollector
 from .collect.claude import ClaudeCollector
 
@@ -54,10 +55,16 @@ class Collector:
                                                          al.get('token_file', '~/.config/piwnica-dashboard/luneta.token'))
         up = cfg.get('updates', {})
         if up.get('enabled', True):  # the ariku.pl inventory, with the same device token as Luneta
+            status = None
+            if up.get('status_enabled', True):  # the updater's run status, with its own read-only token
+                status = UpdaterStatusCollector(al.get('base_url', 'https://ariku.pl'),
+                                                up.get('status_token_file', '~/.config/piwnica-dashboard/updater-status.token'),
+                                                int(up.get('interval', 300)))
             self.extra['updates'] = UpdatesCollector(al.get('base_url', 'https://ariku.pl'),
                                                      al.get('token_file', '~/.config/piwnica-dashboard/luneta.token'),
                                                      bool(up.get('show_ok', False)), cfg.get('_path'),
-                                                     int(up.get('interval', 300)), focus=up.get('focus', 'security'))
+                                                     int(up.get('interval', 300)), focus=up.get('focus', 'security'),
+                                                     status=status)
         cl = cfg.get('claude', {})
         if cl.get('enabled', True):
             self.extra['claude'] = ClaudeCollector(
@@ -237,7 +244,18 @@ class DemoCollector:
                             {'name': 'traefik', 'kind': 'container', 'status': 'update',
                              'reason': 'nowszy obraz w rejestrze'},
                             {'name': 'n8n', 'kind': 'lxc', 'status': 'update', 'reason': '3 aktualizacji do zainstalowania'},
-                            {'name': 'tasmota-garaż', 'kind': 'device', 'status': 'stale', 'reason': None}]},
+                            {'name': 'tasmota-garaż', 'kind': 'device', 'status': 'stale', 'reason': None}],
+                        'updater': {'error': None, 'configured': True, 'age': 8.0, 'stale': False,
+                                    'run': {'id': 'demo', 'kind': 'apply', 'state': 'running', 'started': now - 754,
+                                            'finished': None, 'duration': 754,
+                                            'stage': 'lxc:105 Setting up openssl (3.0.17-1~deb12u2)', 'error': None,
+                                            'log': ['[lxc:105] Unpacking openssl (3.0.17-1~deb12u2)',
+                                                    '[lxc:105] Setting up openssl (3.0.17-1~deb12u2)']},
+                                    'targets': [{'key': 'host', 'name': 'Proxmox host', 'state': 'succeeded', 'error': None, 'at': now - 3 * 86400},
+                                                {'key': 'lxc:105', 'name': 'n8n', 'state': 'running', 'error': None, 'at': now - 754},
+                                                {'key': 'lxc:106', 'name': 'traefik', 'state': 'failed',
+                                                 'error': 'dpkg was interrupted', 'at': now - 3 * 86400}],
+                                    'last_check': {'at': now - 1800, 'pending': 4, 'security': 3}}},
             'forge': {'comfy': {'running': 1, 'pending': 2, 'vram_used': 9.1 * 2 ** 30, 'vram_total': 16 * 2 ** 30},
                       'comfy_up': True, 'softstart': {'active': 'active', 'max_mhz': 2000, 'watts': 150}},
             'claude': {'error': None, 'plan': 'max', 'age': 12.0,

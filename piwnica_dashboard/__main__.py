@@ -188,6 +188,53 @@ def cmd_updates(cfg, show_all=False, as_json=False):
     return 0
 
 
+def cmd_updater(cfg, as_json=False):
+    """Status of the ariku.pl Proxmox/LXC updater (read-only). Installing is done in the ariku.pl panel."""
+    import json
+    import time
+    from .collect.updater_status import UpdaterStatusCollector
+
+    al = cfg.get('afterlife', {})
+    up = cfg.get('updates', {})
+    token_file = up.get('status_token_file', '~/.config/piwnica-dashboard/updater-status.token')
+    data = UpdaterStatusCollector(al.get('base_url', 'https://ariku.pl'), token_file, background=False).sample()
+    if data.get('error') == 'no token':
+        print(f'updater status token missing: save SYSTEM_UPDATER_STATUS_TOKEN (from OpenBao kv/afterlife/prod) '
+              f'to {token_file} (chmod 600)')
+        return 1
+    if 'run' not in data:
+        print(f'updater status unavailable: {data.get("error")}')
+        return 1
+    if as_json:
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        return 0
+    run = data['run']
+    if not run:
+        print('no updater runs yet')
+    else:
+        kind = 'install' if run.get('kind') == 'apply' else 'check'
+        took = f'{int(run["duration"]) // 60}m{int(run["duration"]) % 60:02d}s' if run.get('duration') is not None else '?'
+        started = time.strftime('%Y-%m-%d %H:%M', time.localtime(run['started'])) if run.get('started') else '?'
+        print(f'{kind}: {run["state"]}, started {started}, {took}')
+        if run.get('stage'):
+            print(f'  stage: {run["stage"]}')
+        if run.get('error'):
+            print(f'  error: {run["error"]}')
+        for line in run.get('log') or []:
+            print(f'  | {line}')
+    for t in data['targets']:
+        when = time.strftime('%Y-%m-%d %H:%M', time.localtime(t['at'])) if t.get('at') else ''
+        print(f'  {t["state"]:<9} {t["name"]:<28} {when}  {t.get("error") or ""}'.rstrip())
+    lc = data.get('last_check')
+    if lc and lc.get('at'):
+        print(f'last check {time.strftime("%Y-%m-%d %H:%M", time.localtime(lc["at"]))}: '
+              f'{lc.get("pending") or 0} to update, {lc.get("security") or 0} security updates')
+    if data.get('stale'):
+        print(f'warning: status is {int(data["age"])}s old')
+    print('Install updates in the ariku.pl panel: SYSTEM → Updater.')
+    return 1 if run and run['state'] in ('failed', 'stale') else 0
+
+
 def cmd_claude(cfg, as_json=False):
     import json
     import time
@@ -274,6 +321,8 @@ def main(argv=None):
     upd = sub.add_parser('updates', help='what in the homelab needs an update or an intervention (ariku.pl inventory)')
     upd.add_argument('--all', action='store_true', help='also list everything that is ok')
     upd.add_argument('--json', action='store_true', help='print the view as JSON')
+    ust = sub.add_parser('updater', help='status of the ariku.pl Proxmox/LXC updater (read-only)')
+    ust.add_argument('--json', action='store_true', help='print the status as JSON')
     cla = sub.add_parser('claude', help='Claude plan limits (5h session, week), as /usage shows them')
     cla.add_argument('--json', action='store_true', help='print the limits as JSON')
     bld = sub.add_parser('builds', help='Forgejo Actions build progress and versions')
@@ -296,6 +345,8 @@ def main(argv=None):
         return cmd_inventory(cfg, args.json)
     if args.cmd == 'updates':
         return cmd_updates(cfg, args.all, args.json)
+    if args.cmd == 'updater':
+        return cmd_updater(cfg, args.json)
     if args.cmd == 'claude':
         return cmd_claude(cfg, args.json)
     if args.cmd == 'builds':

@@ -66,9 +66,29 @@ and **keeps off the character on your wallpaper** (holdout mask).
   ```
 
   `piwnica-dashboard updates` prints the same list in a terminal; `--all` includes the ok ones and the routine
-  updates, `--json` gives raw output. `scripts/update-homelab.py` installs the APT updates on the Proxmox host
-  (`dist-upgrade`) and running LXCs (`upgrade`) after a confirmation, security updates first; community-scripts
-  apps are only listed with their `pct exec <id> -- update` command.
+  updates, `--json` gives raw output.
+
+  **Updater status** on top of the panel: whether a Proxmox/LXC update from the ariku.pl updater is running, how
+  the last one ended, when it started and how long it took, the current stage (target and step from the log), the
+  last error with a few log lines, and the last attempt per host and LXC. It reads
+  `GET /api/infra/system-updater/status` with its own read-only service token (not the Luneta token, not the
+  Proxmox token); the server trims the log and masks anything that looks like a credential. While an update runs
+  the panel refreshes every 15 s; status older than three intervals is marked as such.
+
+  ```sh
+  install -m 600 /dev/null ~/.config/piwnica-dashboard/updater-status.token
+  bao kv get -mount=kv -field=SYSTEM_UPDATER_STATUS_TOKEN afterlife/prod > ~/.config/piwnica-dashboard/updater-status.token
+  ```
+
+  ```toml
+  [updates]
+  status_enabled = true
+  status_token_file = "~/.config/piwnica-dashboard/updater-status.token"
+  ```
+
+  Updates are installed only in the ariku.pl panel (SYSTEM → Updater). `piwnica-dashboard updater` (and
+  `scripts/update-homelab.py`, kept for old habits) prints the status; the script no longer runs its own
+  plan/apply over SSH -- two apt runners on the same hosts could not see each other's runs.
 - **Claude panel** — the plan limits Claude Code's `/usage` shows: the 5-hour session and the week, with live
   reset countdowns, extra usage when enabled, the week split by product, plus the 5h and weekly limits of the
   `228` and `228-2` CLIProxyAPI (Antigravity) accounts (`proxy_host = "auto"`, from `ARIKU_GEMINI_URL` in

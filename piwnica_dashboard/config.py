@@ -23,7 +23,8 @@ DEFAULTS = {
                 'fingerprint': '', 'node': 'auto', 'ssh_user': 'root'},
     'afterlife': {'enabled': True, 'base_url': 'https://ariku.pl', 'token_file': '~/.config/piwnica-dashboard/luneta.token'},
     'forge': {'enabled': True, 'comfyui': 'http://127.0.0.1:8188'},
-    'updates': {'enabled': True, 'show_ok': False, 'focus': 'security', 'interval': 300},
+    'updates': {'enabled': True, 'show_ok': False, 'focus': 'security', 'interval': 300, 'status_enabled': True,
+                'status_token_file': '~/.config/piwnica-dashboard/updater-status.token'},
     'claude': {'enabled': True, 'credentials': '~/.claude/.credentials.json', 'interval': 60,
                'proxy_host': 'auto', 'ssh_user': 'root', 'pool': 'auto',
                'codex_credentials': '~/.codex/auth.json'},
@@ -150,6 +151,12 @@ show_ok = false
 focus = "security"
 # Seconds between refreshes.
 interval = 300
+# Status of the ariku.pl Proxmox/LXC updater on top of the panel (running / ok / failed, stage, which host or
+# LXC failed, the last log lines). Read-only, with its own service token -- SYSTEM_UPDATER_STATUS_TOKEN from
+# OpenBao kv/afterlife/prod, saved to this file (chmod 600); not the Luneta token. Refreshes every 15 s while an
+# update runs. Installing is done in the ariku.pl panel (SYSTEM -> Updater), never from here.
+status_enabled = true
+status_token_file = "~/.config/piwnica-dashboard/updater-status.token"
 
 [builds]
 # Forgejo CI builds (git.ariku.pl): monitor long-running builds (afterlife, luneta, companion_app).
