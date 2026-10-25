@@ -309,6 +309,20 @@ def cmd_builds(cfg, as_json=False):
     return 0
 
 
+def cmd_mascot_holdout(args, cfg):
+    from . import mascot
+    from .app import monitors
+    if mascot.WebKit2 is None:
+        print('piwnica-dashboard: webkit2gtk-4.1 is not installed')
+        return 1
+    mons = monitors()
+    i = config_mod.pick_monitor(mons, cfg['display'].get('monitor', 'auto'))
+    if i is None:
+        print('piwnica-dashboard: no monitor found')
+        return 1
+    return mascot.write_holdout(cfg, mons[i], args.out)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog='piwnica-dashboard', description='Animated PCB desktop layer with a system dashboard.')
     ap.add_argument('--version', action='version', version=__version__)
@@ -327,6 +341,8 @@ def main(argv=None):
     cla.add_argument('--json', action='store_true', help='print the limits as JSON')
     bld = sub.add_parser('builds', help='Forgejo Actions build progress and versions')
     bld.add_argument('--json', action='store_true', help='print the builds view as JSON')
+    mh = sub.add_parser('mascot-holdout', help='save the [mascot] character outline as a holdout PNG')
+    mh.add_argument('out')
     sc = sub.add_parser('screenshot', help='render one frame to a PNG (no window needed)')
     sc.add_argument('out')
     sc.add_argument('--size', default='1200x1920')
@@ -351,6 +367,8 @@ def main(argv=None):
         return cmd_claude(cfg, args.json)
     if args.cmd == 'builds':
         return cmd_builds(cfg, args.json)
+    if args.cmd == 'mascot-holdout':
+        return cmd_mascot_holdout(args, cfg)
     try:
         os.nice(10)
     except OSError:

@@ -188,6 +188,19 @@ now = [380, 330, 380, 200]   # x, y, width, height
 A pinned spot that touches the character, leaves the screen or overlaps another panel is ignored and
 the panel is placed automatically. Check the result with `screenshot --demo`.
 
+### Live2D character (optional)
+
+`[mascot]` puts a Live2D model on the dashboard monitor, in a transparent window under the other windows;
+its head and eyes follow the mouse cursor. It needs `webkit2gtk-4.1` and your own files, none of which
+ship here: the `.model3.json`, Cubism Core (`live2dcubismcore.min.js`, Live2D licence) and a directory with
+`pixi.min.js` (pixi.js 6) and `cubism4.min.js` (pixi-live2d-display 0.4). It is hidden while a game runs and
+costs ~7% of one core at the default 24 fps. Use a wallpaper without a character and write the model's outline
+as its holdout, so the traces and the panels keep off it:
+
+```sh
+piwnica-dashboard mascot-holdout ~/Pictures/wall/holdout-1200x1920.png
+```
+
 ## Tests
 
 ```sh
@@ -240,5 +253,8 @@ kliknięcia i omija postać na tapecie (maska holdout).
   animacja na pozostałych monitorach się wyłącza, a dashboard działa dalej (`dashboard_in_games = false`, żeby też gasł).
 - **Maska postaci:** PNG w rozmiarze monitora, gdzie alfa > 0 oznacza postać. Plik
   `holdout-<szer>x<wys>.png` obok tapety XFCE jest wykrywany sam. Przykład jest w `examples/orin/`.
+- **Postać Live2D:** `[mascot]` stawia model Live2D na monitorze dashboardu, a jego głowa i oczy podążają
+  za kursorem. Potrzebne są `webkit2gtk-4.1` i własne pliki (model, Cubism Core, pixi). Żaden z nich nie jest
+  w repo. Maskę holdout z sylwetki modelu zapisuje `piwnica-dashboard mascot-holdout <png>`.
 - **Własny układ:** `[layout."1200x1920"]` z `panel = [x, y, szer, wys]` przypina panele w danym miejscu.
   Miejsce, które dotyka postaci, wychodzi poza ekran albo nachodzi na inny panel, jest pomijane.

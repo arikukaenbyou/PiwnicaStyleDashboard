@@ -32,6 +32,8 @@ DEFAULTS = {
                'token_file': '~/.config/piwnica-dashboard/forgejo.token',
                'repos': ['afterlife', 'luneta', 'companion_app'],
                'interval': 30},
+    'mascot': {'enabled': False, 'model': '', 'core': '', 'libs': '', 'rect': 'auto', 'fps': 24,
+               'zoom': 1.0, 'eyes': 0.2, 'reach': 700, 'fade': 0.0},
 }
 
 TEMPLATE = """\
@@ -182,6 +184,31 @@ ssh_user = "root"
 pool = "auto"
 # Seconds between refreshes.
 interval = 60
+
+[mascot]
+# A Live2D character on the dashboard monitor whose head and eyes follow the mouse cursor
+# (a transparent WebKit window under the other windows; needs webkit2gtk-4.1). Nothing of the
+# model ships with this program: point at your own files.
+#   model = the .model3.json; core = live2dcubismcore.min.js (Cubism SDK for Web, Live2D licence);
+#   libs = a directory with pixi.min.js (pixi.js 6) and cubism4.min.js (pixi-live2d-display 0.4).
+# Hidden while a game or a fullscreen window runs. `piwnica-dashboard mascot-holdout <png>` writes
+# the character's outline as a holdout mask, so the traces and the panels keep off it.
+enabled = false
+model = ""
+core = ""
+libs = ""
+# [x, y, width, height] on the monitor, or "auto" = bottom centre, half the monitor wide.
+rect = "auto"
+# 24 fps costs ~7% of one core here (30: ~9%, 20: ~5%).
+fps = 24
+# Model size in the box (1 = fits it) and where its eyes are, as a fraction of its height from the top.
+zoom = 1.0
+eyes = 0.2
+# Bottom part of the box (0..1) over which the model fades out -- for a waist-up model that does not
+# stand on the screen edge.
+fade = 0.0
+# Cursor distance (px) at which the head is turned all the way; closer, it turns less.
+reach = 700
 """
 
 

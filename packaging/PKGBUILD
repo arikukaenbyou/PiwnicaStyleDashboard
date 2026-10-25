@@ -8,6 +8,7 @@ url='https://github.com/arikukaenbyou/PiwnicaStyleDashboard'
 license=('MIT')
 depends=('python' 'python-gobject' 'python-cairo' 'python-numpy' 'gtk3' 'xorg-xprop' 'util-linux')
 optdepends=('ttf-jetbrains-mono: panel font'
+            'webkit2gtk-4.1: Live2D character following the cursor ([mascot])'
             'xfconf: holdout lookup next to the XFCE wallpaper'
             'nvidia-utils: NVIDIA GPU load and temperature')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")

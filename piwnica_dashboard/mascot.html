@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; overflow: hidden; background: transparent; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// Live2D character for mascot.py. Cubism Core (closed licence) and pixi + pixi-live2d-display come
+// from the user's disk, never from this repo; mascot.py fills in MASCOT before loading the page.
+const C = window.MASCOT = /*CONFIG*/{};
+
+const script = (src) => new Promise((resolve, reject) => {
+  const s = Object.assign(document.createElement('script'), { src });
+  s.onload = resolve;
+  s.onerror = () => reject(new Error(`cannot load ${src}`));
+  document.head.appendChild(s);
+});
+
+const say = (msg) => window.webkit?.messageHandlers?.mascot?.postMessage(msg);
+
+(async () => {
+  try {
+    await script(C.core);
+    await script(C.pixi);
+    await script(C.cubism4);
+  } catch (e) {
+    say(`error: ${e.message}`);
+    return;
+  }
+  const { PIXI } = window;
+  const { width, height } = C;
+  const view = document.getElementById('c');
+  if (C.fade > 0) {  // a waist-up model ends in mid-air: its bottom part fades out instead of a hard cut
+    const m = `linear-gradient(to bottom, #000 ${Math.round((1 - C.fade) * 100)}%, transparent 100%)`;
+    view.style.maskImage = view.style.webkitMaskImage = m;
+  }
+  const app = new PIXI.Application({ view, width, height, backgroundAlpha: 0, antialias: true, autoStart: true });
+  app.ticker.maxFPS = C.fps;
+
+  let model;
+  try {
+    model = await PIXI.live2d.Live2DModel.from(C.model, { autoInteract: false });
+  } catch (e) {
+    say(`error: model: ${e.message}`);
+    return;
+  }
+  // the (waist-up) model stands on the bottom edge, as large as the box allows
+  const s = Math.min(width / model.internalModel.width, height / model.internalModel.height) * C.zoom;
+  model.scale.set(s);
+  model.anchor.set(0.5, 1);
+  model.position.set(width / 2, height);
+  app.stage.addChild(model);
+
+  // where the eyes are, in canvas pixels: C.eyes = fraction of the model's height from its top
+  const eyeX = width / 2;
+  const eyeY = height - model.height * (1 - C.eyes);
+  const focus = model.internalModel.focusController;
+
+  window.mascot = {
+    // cursor in canvas pixels (anywhere on the desktop, also outside the canvas): the head and the
+    // eyes turn towards it, fully once it is `reach` px away, less when it is close to the face
+    look(x, y) {
+      const dx = x - eyeX, dy = y - eyeY;
+      const d = Math.hypot(dx, dy);
+      const k = Math.min(1, d / C.reach) / (d || 1);
+      focus.focus(dx * k, -dy * k);
+    },
+    pause(p) { p ? app.ticker.stop() : app.ticker.start(); },
+  };
+  say(`ready ${Math.round(model.width)}x${Math.round(model.height)} eyes ${Math.round(eyeX)},${Math.round(eyeY)}`);
+})();
+</script>
+</body>
+</html>

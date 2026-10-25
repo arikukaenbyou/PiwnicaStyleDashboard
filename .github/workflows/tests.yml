@@ -8,7 +8,7 @@ jobs:
     # runner Forgejo nie, więc musi być w obrazie.
     steps:
       - name: Dependencies
-        run: pacman -Syu --noconfirm --needed python python-numpy python-cairo git nodejs
+        run: pacman -Syu --noconfirm --needed python python-numpy python-cairo python-gobject gtk3 git nodejs
       - uses: actions/checkout@v4
       - name: Unit tests (fake /proc and /sys, no display)
         run: python -m unittest discover -s tests -t . -v

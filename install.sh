@@ -36,6 +36,8 @@ fi
 fonts=$(fc-list : family 2>/dev/null || true)
 pacman -Q ttf-jetbrains-mono >/dev/null 2>&1 || [[ "$fonts" == *"JetBrains Mono"* ]] || \
     echo "Tip: sudo pacman -S ttf-jetbrains-mono  (panel font; a fallback monospace is used otherwise)"
+pacman -Q webkit2gtk-4.1 >/dev/null 2>&1 || \
+    echo "Tip: sudo pacman -S webkit2gtk-4.1  (only for the optional Live2D [mascot])"
 
 echo "== tests"
 /usr/bin/python3 -m unittest discover -s tests -t . >/dev/null 2>&1 || { echo "Tests fail on this machine -- not installing."; /usr/bin/python3 -m unittest discover -s tests -t .; exit 1; }

@@ -127,6 +127,7 @@ class App:
             print(f'{TITLE}: {m["name"]} {m["w"]}x{m["h"]} {role}, holdout: {hold_path or "none"}'
                   + (f', panels: {scene.dash.rects}' if scene.dash else ''), flush=True)
             self.boards.append(Board(m, scene))
+        self.mascot = start_mascot(cfg, mons[dash_i]) if dash_i is not None else None
         self.paused = False
         self.dashboard_in_games = bool(disp.get('dashboard_in_games', True))
         fps = max(5, min(60, int(disp.get('fps', 30))))
@@ -160,6 +161,8 @@ class App:
         if fs == self.paused:
             return True
         self.paused = fs
+        if self.mascot is not None:  # decoration only: off for the whole game, also on the dashboard monitor
+            self.mascot.pause(fs)
         for b in self.boards:
             if b.scene.dash is not None and self.dashboard_in_games:
                 continue
@@ -181,6 +184,24 @@ class App:
     def quit(self):
         Gtk.main_quit()
         return False
+
+
+def start_mascot(cfg, mon):
+    """The Live2D character ([mascot]) on the dashboard monitor, or None when it is off or
+    something it needs is missing -- the dashboard runs on without it."""
+    sec = cfg.get('mascot') or {}
+    if not sec.get('enabled'):
+        return None
+    from . import mascot
+    if mascot.WebKit2 is None:
+        print(f'{TITLE}: mascot off, webkit2gtk-4.1 is not installed', flush=True)
+        return None
+    paths, missing = mascot.files(sec)
+    if missing:
+        print(f'{TITLE}: mascot off, [mascot] files missing: {", ".join(missing)}', flush=True)
+        return None
+    print(f'{TITLE}: mascot on {mon["name"]} at {mascot.place(sec, mon["w"], mon["h"])}', flush=True)
+    return mascot.Mascot(mon, sec, paths, log=lambda s: print(s, flush=True))
 
 
 def single_instance():
