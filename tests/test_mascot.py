@@ -67,6 +67,32 @@ class TestMascot(unittest.TestCase):
         self.assertIn('"fade": 0.18', html)
         self.assertNotIn('/*CONFIG*/', html)
 
+    def test_idle_plan_lists_every_rest_pose_with_its_length(self):
+        import json
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, 'motions'))
+        for name, secs in (('idle', 8.0), ('think', 40.0)):
+            with open(os.path.join(d, 'motions', f'{name}.motion3.json'), 'w') as f:
+                json.dump({'Meta': {'Duration': secs}}, f)
+        model = os.path.join(d, 'w.model3.json')
+        with open(model, 'w') as f:
+            json.dump({'FileReferences': {'Motions': {
+                'Idle': [{'File': 'motions/idle.motion3.json'}, {'File': 'motions/think.motion3.json'},
+                         {'File': 'motions/gone.motion3.json'}],
+                'Wave': [{'File': 'motions/idle.motion3.json'}]}}}, f)
+        # long motions capped, a missing file gets a default length, other groups ignored
+        self.assertEqual(mascot.idle_plan(model, cap=15.0), [(0, 8.0), (1, 15.0), (2, 5.0)])
+        self.assertEqual(mascot.idle_plan(os.path.join(d, 'none.model3.json')), [])
+        # [mascot] idle_skip by file name: left out of the holdout and handed to the page as indexes
+        sec = {'idle_skip': ['think']}
+        self.assertEqual(mascot.idle_skip(model, sec), [1])
+        self.assertEqual(mascot.idle_plan(model, skip=mascot.idle_skip(model, sec)), [(0, 8.0), (2, 5.0)])
+        html = mascot.page_html({'model': model, 'core': '/c.js', 'pixi': '/p.js', 'cubism4': '/x.js'}, 300, 900, sec)
+        self.assertIn('"idle_skip": [1]', html)
+        with open(model, 'w') as f:
+            json.dump({'FileReferences': {}}, f)
+        self.assertEqual(mascot.idle_plan(model), [])
+
 
 class TestMascotConfig(unittest.TestCase):
     def test_off_by_default_and_template_parses(self):

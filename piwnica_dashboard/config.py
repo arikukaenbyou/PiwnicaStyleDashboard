@@ -33,7 +33,7 @@ DEFAULTS = {
                'repos': ['afterlife', 'luneta', 'companion_app'],
                'interval': 30},
     'mascot': {'enabled': False, 'model': '', 'core': '', 'libs': '', 'rect': 'auto', 'fps': 24,
-               'zoom': 1.0, 'eyes': 0.2, 'reach': 700, 'fade': 0.0},
+               'zoom': 1.0, 'eyes': 0.2, 'reach': 700, 'fade': 0.0, 'idle_skip': []},
 }
 
 TEMPLATE = """\
@@ -209,6 +209,9 @@ eyes = 0.2
 fade = 0.0
 # Cursor distance (px) at which the head is turned all the way; closer, it turns less.
 reach = 700
+# Idle motions left out here, by file name without .motion3.json (e.g. ["hair_fix"]): a gesture that
+# reaches far to the side would make the holdout -- and so the gap between the panels -- much wider.
+idle_skip = []
 """
 
 

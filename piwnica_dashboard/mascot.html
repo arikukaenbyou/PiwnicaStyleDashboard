@@ -49,6 +49,18 @@ const say = (msg) => window.webkit?.messageHandlers?.mascot?.postMessage(msg);
     say(`error: model: ${e.message}`);
     return;
   }
+  // [mascot] idle_skip: the random rest motion is drawn from the other Idle motions only
+  // (set before the first idle starts; mascot.play() still plays any of them)
+  const mm = model.internalModel.motionManager;
+  const skip = new Set(C.idle_skip || []);
+  const idles = (mm.definitions[mm.groups.idle] || []).map((_, i) => i).filter((i) => !skip.has(i));
+  if (skip.size && idles.length) {
+    const random = mm.startRandomMotion.bind(mm);
+    mm.startRandomMotion = (group, priority) => group === mm.groups.idle
+      ? mm.startMotion(group, idles[Math.floor(Math.random() * idles.length)], priority)
+      : random(group, priority);
+  }
+
   // the (waist-up) model stands on the bottom edge, as large as the box allows
   const s = Math.min(width / model.internalModel.width, height / model.internalModel.height) * C.zoom;
   model.scale.set(s);
@@ -71,6 +83,8 @@ const say = (msg) => window.webkit?.messageHandlers?.mascot?.postMessage(msg);
       focus.focus(dx * k, -dy * k);
     },
     pause(p) { p ? app.ticker.stop() : app.ticker.start(); },
+    // mascot-holdout: play the i-th Idle motion now (priority FORCE) to catch every rest pose
+    play(i) { model.motion('Idle', i, 3); },
   };
   say(`ready ${Math.round(model.width)}x${Math.round(model.height)} eyes ${Math.round(eyeX)},${Math.round(eyeY)}`);
 })();

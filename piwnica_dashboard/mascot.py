@@ -53,7 +53,8 @@ def place(sec, mw, mh):
 
 
 def page_html(paths, w, h, sec):
-    cfg = {'width': w, 'height': h, 'fps': max(5, min(60, int(sec.get('fps', 30)))),
+    skip = idle_skip(paths['model'], sec)
+    cfg = {'width': w, 'height': h, 'fps': max(5, min(60, int(sec.get('fps', 30)))), 'idle_skip': skip,
            'zoom': float(sec.get('zoom', 1.0)), 'eyes': float(sec.get('eyes', 0.2)),
            'reach': max(1.0, float(sec.get('reach', 700))),
            'fade': max(0.0, min(1.0, float(sec.get('fade', 0.0)))),
@@ -195,9 +196,44 @@ class Mascot(Gtk.Window):
             self.click_through()
 
 
-def write_holdout(cfg, mon, out, log=print):
-    """Opens the character where `run` puts it, lets it settle looking straight ahead and saves
-    its outline as a holdout PNG of the monitor's size. 0 on success."""
+def idle_motions(model_path):
+    """[(name, path)] of the model's Idle motions, name = file name without .motion3.json;
+    [] when the model cannot be read or has no Idle group."""
+    try:
+        with open(model_path, encoding='utf-8') as f:
+            idles = json.load(f)['FileReferences'].get('Motions', {}).get('Idle', [])
+        return [(os.path.basename(e['File']).split('.')[0], os.path.join(os.path.dirname(model_path), e['File']))
+                for e in idles]
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
+        return []
+
+
+def idle_skip(model_path, sec):
+    """Indexes in the Idle group of the motions named in [mascot] idle_skip."""
+    names = set(sec.get('idle_skip') or ())
+    return [i for i, (name, _p) in enumerate(idle_motions(model_path)) if name in names]
+
+
+def idle_plan(model_path, cap=15.0, skip=()):
+    """[(index, seconds)] of the model's Idle motions -- every pose it takes at rest, so the holdout
+    covers all of them (an arm or the hair swings past any single frame). [] without an Idle group."""
+    plan = []
+    for i, (_name, path) in enumerate(idle_motions(model_path)):
+        if i in skip:
+            continue
+        try:
+            with open(path, encoding='utf-8') as f:
+                d = float(json.load(f)['Meta']['Duration'])
+        except (OSError, ValueError, KeyError, TypeError):
+            d = 5.0
+        plan.append((i, max(1.0, min(cap, d))))
+    return plan
+
+
+def write_holdout(cfg, mon, out, log=print, every_ms=400):
+    """Opens the character where `run` puts it, looking straight ahead, plays each Idle motion in
+    turn and saves the outline of all the frames together as a holdout PNG of the monitor's size.
+    0 on success."""
     sec = cfg['mascot']
     paths, missing = files(sec)
     if missing:
@@ -205,24 +241,54 @@ def write_holdout(cfg, mon, out, log=print):
         return 1
     m = Mascot(mon, sec, paths, log=log)
     m.paused = True  # no cursor: the outline of the straight pose
-    result = {'code': 1}
+    # no Idle group: one frame after the idle fade-in, as before
+    plan = idle_plan(paths['model'], skip=idle_skip(paths['model'], sec)) or [(None, 2.5)]
+    st = {'code': 1, 'step': -1, 'until': 0.0, 'busy': False, 'acc': None, 'frames': 0}
 
-    def snapped(view, res):
-        try:
-            a = surface_alpha(view.get_snapshot_finish(res))
-            write_alpha_png(holdout(a, m.rect, mon['w'], mon['h']), out)
-            log(f'piwnica-dashboard: holdout {mon["w"]}x{mon["h"]} -> {out}')
-            result['code'] = 0
-        except (GLib.Error, cairo.Error, OSError) as e:
-            log(f'piwnica-dashboard: snapshot failed: {e}')
+    def finish():
+        if st['acc'] is None:
+            log('piwnica-dashboard: no frame captured')
+        else:
+            try:
+                write_alpha_png(holdout(st['acc'], m.rect, mon['w'], mon['h']), out)
+                log(f'piwnica-dashboard: holdout {mon["w"]}x{mon["h"]} from {st["frames"]} frames '
+                    f'of {len(plan)} idle motion(s) -> {out}')
+                st['code'] = 0
+            except (cairo.Error, OSError) as e:
+                log(f'piwnica-dashboard: cannot write the holdout: {e}')
         Gtk.main_quit()
 
-    def snap():
-        m.view.get_snapshot(WebKit2.SnapshotRegion.VISIBLE, WebKit2.SnapshotOptions.TRANSPARENT_BACKGROUND,
-                            None, snapped)
-        return False
+    def snapped(view, res):
+        st['busy'] = False
+        try:
+            a = surface_alpha(view.get_snapshot_finish(res))
+        except (GLib.Error, cairo.Error) as e:
+            log(f'piwnica-dashboard: snapshot failed: {e}')
+            return
+        st['acc'] = a if st['acc'] is None or st['acc'].shape != a.shape else np.maximum(st['acc'], a)
+        st['frames'] += 1
 
-    m.on_ready = lambda: GLib.timeout_add(2500, snap)  # the idle motion's fade-in
-    GLib.timeout_add(30000, lambda: (log('piwnica-dashboard: the model did not load'), Gtk.main_quit()))
+    def tick():
+        now = GLib.get_monotonic_time() / 1e6
+        if now >= st['until'] and not st['busy']:
+            st['step'] += 1
+            if st['step'] >= len(plan):
+                finish()
+                return False
+            i, secs = plan[st['step']]
+            if i is not None:
+                m.js(f'mascot.play({i})')
+            st['until'] = now + secs
+            return True
+        if not st['busy'] and (plan[st['step']][0] is not None or now >= st['until'] - every_ms / 1000):
+            st['busy'] = True
+            m.view.get_snapshot(WebKit2.SnapshotRegion.VISIBLE, WebKit2.SnapshotOptions.TRANSPARENT_BACKGROUND,
+                                None, snapped)
+        return True
+
+    m.on_ready = lambda: GLib.timeout_add(every_ms, tick)
+    limit = 30 + sum(s for _i, s in plan) * 2
+    GLib.timeout_add_seconds(int(limit), lambda: (log('piwnica-dashboard: the model did not load or got stuck'),
+                                                  Gtk.main_quit()))
     Gtk.main()
-    return result['code']
+    return st['code']
