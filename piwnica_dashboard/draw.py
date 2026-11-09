@@ -872,10 +872,12 @@ class Dashboard:
                       DANGER if a.get('dead') else TEXT)
             self.bar(cr, x + 12, yy + 10, w - 24, 6, pct, ACCENT if a.get('running') else MUTED)
             nodes = a.get('nodes')
-            if nodes:
+            # baseline 29 = glyph tops clear of the bar's glow (bar yy+10..16, glow to yy+18);
+            # dropped when it would run into the agent line at the bottom
+            if nodes and yy + 29 <= y + h - 26:
                 nodes_txt = ' · '.join(nodes)
                 prefix = '' if any(':' in n for n in nodes) else 'węzły: '
-                self.text(cr, x + 12, yy + 24, self.fit(cr, f'{prefix}{nodes_txt}', 10, w - 24), 10, DIM)
+                self.text(cr, x + 12, yy + 29, self.fit(cr, f"{prefix}{nodes_txt}", 10, w - 24), 10, DIM)
         hb = lu.get('heartbeat')
         if lu.get('agent_running'):
             agent, color = f'agent on · sync {fmt_ago(hb, time.time()) if hb else "…"}', DIM

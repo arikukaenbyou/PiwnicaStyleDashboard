@@ -192,5 +192,30 @@ class TestScene(unittest.TestCase):
                                 for x, y, w, h in rects))
 
 
+class TestLunetaPanel(unittest.TestCase):
+    def test_nodes_line_clears_analysis_bar_and_footer(self):
+        """Two games + analysis in a 210 px panel: the nodes line sits below the bar's glow."""
+        from piwnica_dashboard.draw import Dashboard
+        dash = object.__new__(Dashboard)
+        texts, bars = [], []
+        dash.panel = lambda cr, rect, title: None
+        dash.row_bar = lambda *a, **k: None
+        dash.fit = lambda cr, s, size, w, bold=False: s
+        dash.text = lambda cr, x, y, s, size, color, bold=False, align='left': texts.append((y, size, s))
+        dash.bar = lambda cr, x, y, w, h, pct, color: bars.append((y, h))
+        game = {'name': 'G', 'daily_in': 3600, 'done': 1, 'tasks': 2, 'critical_left': 0}
+        d = {'luneta': {'games': [game, dict(game)], 'agent_running': True, 'heartbeat': None, 'remote': True,
+                        'analysis': {'of': 216, 'done': 123, 'nodes': ['felix-pc']}}}
+        rect = (20, 830, 320, 210)
+        dash.draw_luneta(None, rect, d)
+        (bar_y, bar_h), = bars
+        nodes_y, nodes_size, _ = next(t for t in texts if t[2].startswith('węzły'))
+        footer_y, footer_size, _ = texts[-1]
+        cap, desc = 0.75, 0.25                                              # JetBrains Mono proportions
+        self.assertGreaterEqual(nodes_y - cap * nodes_size, bar_y + bar_h + 2 + 2)  # 2 px below the glow
+        self.assertLessEqual(nodes_y + desc * nodes_size + 2, footer_y - cap * footer_size)  # above the footer
+
+
+
 if __name__ == '__main__':
     unittest.main()

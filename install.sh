@@ -48,7 +48,15 @@ install -d "$SHARE" "$(dirname "$BIN")" "$(dirname "$AUTOSTART")"
 cp -r piwnica_dashboard "$SHARE/"
 find "$SHARE" -name __pycache__ -prune -exec rm -rf {} +
 install -m755 packaging/piwnica-dashboard "$BIN"
-sed "s|^Exec=.*|Exec=$BIN run|" packaging/piwnica-dashboard.desktop > "$AUTOSTART"
+# Start command: $PIWNICA_LAUNCHER, else a custom Exec= already in the autostart entry (e.g. a
+# wrapper that fetches panel tokens first), else the plain launcher. A reinstall keeps the wrapper.
+EXEC="${PIWNICA_LAUNCHER:-}"
+if [ -z "$EXEC" ] && [ -f "$AUTOSTART" ]; then
+    EXEC=$(sed -n 's/^Exec=//p' "$AUTOSTART" | head -n1)
+fi
+[ -n "$EXEC" ] || EXEC="$BIN run"
+[ "$EXEC" = "$BIN run" ] || echo "Autostart keeps a custom start command: $EXEC"
+sed "s|^Exec=.*|Exec=$EXEC|" packaging/piwnica-dashboard.desktop > "$AUTOSTART"
 
 echo "== detected on this machine"
 "$BIN" detect || true
@@ -57,7 +65,9 @@ echo "== start"
 stop_running
 if [ -n "${DISPLAY:-}" ]; then
     # own transient unit: survives the terminal it was started from
-    systemd-run --user --unit="$UNIT" --collect -E DISPLAY="$DISPLAY" ${XAUTHORITY:+-E XAUTHORITY="$XAUTHORITY"} "$BIN" run >/dev/null
+    # same command as the autostart entry, so a token-fetching wrapper runs here too
+    systemd-run --user --unit="$UNIT" --collect -E DISPLAY="$DISPLAY" ${XAUTHORITY:+-E XAUTHORITY="$XAUTHORITY"} \
+        /bin/sh -c "exec $EXEC" >/dev/null
     sleep 3
     systemctl --user is-active --quiet "$UNIT" && echo "running (journalctl --user -u $UNIT)" || \
         { echo "failed to start:"; journalctl --user -u "$UNIT" -n 20 --no-pager; exit 1; }
