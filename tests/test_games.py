@@ -35,6 +35,19 @@ class TestGames(unittest.TestCase):
         self.assertTrue(game_running(fake_proc(*DESKTOP, ['/usr/bin/python3', '/usr/bin/lutris-wrapper', 'game'])))
         self.assertTrue(game_running(fake_proc(*DESKTOP, ['gamescope', '-f', '--', 'game'])))
 
+    def test_battle_net_launcher_alone_is_not_a_game(self):
+        bnet = [['lutris-wrapper: Battle.net' + ' ' * 40],
+                ['c:\\windows\\system32\\umu.exe', '/games/World of Warcraft/World of Warcraft Launcher.exe'],
+                ['\\\\?\\X:\\Steam\\files\\share\\wine/../xalia/xalia.exe'],
+                ['C:/ProgramData/Battle.net/Agent/Agent.9852/Agent.exe', '--locale=enUS'],
+                ['C:/Program Files (x86)/Battle.net/Battle.net.exe', '--game=wow_enus'],
+                ['C:\\Program Files (x86)\\Battle.net\\Battle.net.exe', '--type=renderer']]
+        self.assertFalse(game_running(fake_proc(*DESKTOP, *bnet)))
+        # ...until the game itself starts
+        self.assertTrue(game_running(fake_proc(*DESKTOP, *bnet, ['S:\\Games\\World of Warcraft\\_retail_\\Wow.exe'])))
+        # a game run straight from Lutris still counts
+        self.assertTrue(game_running(fake_proc(*DESKTOP, ['lutris-wrapper: Hades'])))
+
     def test_missing_proc(self):
         self.assertFalse(game_running('/nonexistent'))
 
