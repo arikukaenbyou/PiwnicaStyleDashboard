@@ -144,6 +144,7 @@ class Mascot(Gtk.Window):
         self.view.load_html(page_html(paths, w, h, sec), 'file:///')
 
         self.ready = False
+        self.error = None  # the page's last "error: …" message (health.py reports it)
         self.on_ready = None
         self.last = None
         self.paused = False
@@ -163,6 +164,8 @@ class Mascot(Gtk.Window):
     def on_message(self, _ucm, result):
         msg = result.get_js_value().to_string()
         self.log(f'piwnica-dashboard: mascot {msg}')
+        if msg.startswith('error'):
+            self.error = msg.partition(':')[2].strip() or msg
         if msg.startswith('ready') and not self.ready:
             self.ready = True
             if self.on_ready:

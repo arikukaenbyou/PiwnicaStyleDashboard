@@ -201,6 +201,16 @@ as its holdout, so the traces and the panels keep off it:
 piwnica-dashboard mascot-holdout ~/Pictures/wall/holdout-1200x1920.png
 ```
 
+The holdout covers every pose of the model's Idle motions. A rest gesture that reaches far to the side
+can be left out on the desktop (and out of the holdout) with `idle_skip = ["<motion file name>"]`.
+
+### Health file (for a watcher)
+
+Every 10 s the running dashboard rewrites `$XDG_RUNTIME_DIR/piwnica-dashboard/health.json` (tmpfs): its pid,
+start time, a timestamp, whether a game paused the effects, the Live2D state and the panel sources that
+report an error (`no token`, a failed request). A file that stops changing while the pid lives means a hung
+main loop; no file or a dead pid means it is not running. The schema is in `piwnica_dashboard/health.py`.
+
 ## Tests
 
 ```sh

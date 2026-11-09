@@ -12,6 +12,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 
 import cairo
 import gi
@@ -20,6 +21,7 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
+from . import __version__, health  # noqa: E402
 from . import config as config_mod  # noqa: E402
 from .collector import Collector  # noqa: E402
 from .games import game_running  # noqa: E402
@@ -134,6 +136,11 @@ class App:
         GLib.timeout_add(1000 // fps, self.tick)
         GLib.timeout_add(1000, self.dash_tick)
         GLib.timeout_add(1500, self.check_fullscreen)
+        # heartbeat for Luneta's monitor (health.py): written from this loop, so a hang shows as a stale file
+        self.started = time.time()
+        self.health_path = health.default_path()
+        self.write_health()
+        GLib.timeout_add_seconds(health.INTERVAL, self.write_health)
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, self.cycle)
         for s in (signal.SIGTERM, signal.SIGINT):
             GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, s, self.quit)
@@ -181,7 +188,19 @@ class App:
             b.click_through()
         return True
 
+    def write_health(self):
+        dash = next((b.scene.dash for b in self.boards if b.scene.dash is not None), None)
+        data = dash.c.data if dash is not None else None
+        doc = health.snapshot(time.time(), self.started, __version__, self.paused, health.mascot_state(self.mascot),
+                              data or {})
+        try:
+            health.write(self.health_path, doc)
+        except OSError as e:
+            print(f'{TITLE}: health file: {e}', flush=True)
+        return True
+
     def quit(self):
+        health.remove(self.health_path)
         Gtk.main_quit()
         return False
 
