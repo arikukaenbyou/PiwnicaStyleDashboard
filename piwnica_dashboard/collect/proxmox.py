@@ -105,6 +105,7 @@ class ProxmoxCollector:
     def __init__(self, host, token_file, fingerprint='', node='auto', background=True, fetch=get_json,
                  scan=scan_guest_inventory, ssh_user='root'):
         self.base = f'https://{host}:8006/api2/json'
+        self.token_file = token_file
         self.token = read_token(token_file)
         self.pin, self.node, self.fetch = fingerprint, node, fetch
         self.ssh_user = ssh_user
@@ -147,6 +148,8 @@ class ProxmoxCollector:
         return summarize_nfs(configs, resources, node)
 
     def sample(self):
+        if not self.token:
+            self.token = read_token(self.token_file)  # created later: picked up without a restart
         if not self.token:
             return {'error': 'no token'}
         m, b = self.main.poll(), self.backups.poll()

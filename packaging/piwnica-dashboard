@@ -1,5 +1,22 @@
 #!/bin/sh
 # Launcher: finds the package next to an install prefix (PKGBUILD: /usr, install.sh: ~/.local).
+# Before `run` (also the default command) it runs an optional, machine-local hook
+# ${XDG_CONFIG_HOME:-~/.config}/piwnica-dashboard/pre-start (e.g. fetching panel tokens from a
+# secret store into token_file paths). Every start path -- autostart, install.sh, a restart from
+# elsewhere, a manual start -- goes through here, so the tokens no longer depend on which command
+# the autostart entry holds. The hook gets 30 s; a failing or missing hook never blocks the start.
+case "${1:-run}" in
+run)
+    hook="${XDG_CONFIG_HOME:-$HOME/.config}/piwnica-dashboard/pre-start"
+    if [ -z "${PIWNICA_NO_PRESTART:-}" ] && [ -x "$hook" ]; then
+        if command -v timeout >/dev/null 2>&1; then
+            PATH="$HOME/.local/bin:$PATH" timeout 30 "$hook" >&2 || echo "piwnica-dashboard: pre-start hook failed ($?)" >&2
+        else
+            PATH="$HOME/.local/bin:$PATH" "$hook" >&2 || echo "piwnica-dashboard: pre-start hook failed ($?)" >&2
+        fi
+    fi
+    ;;
+esac
 for d in "${PIWNICA_HOME:-}" "$HOME/.local/share/piwnica-dashboard" /usr/share/piwnica-dashboard; do
     [ -n "$d" ] && [ -d "$d/piwnica_dashboard" ] && exec env PYTHONPATH="$d${PYTHONPATH:+:$PYTHONPATH}" /usr/bin/python3 -m piwnica_dashboard "$@"
 done

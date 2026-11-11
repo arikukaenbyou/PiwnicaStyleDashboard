@@ -180,6 +180,16 @@ class TestProxmox(unittest.TestCase):
         self.assertTrue(all(a == 'PVEAPIToken=dash@pve!dashboard=secret' and p == 'AA:BB' for _u, a, p in calls))
         self.assertEqual(proxmox.ProxmoxCollector('h', '/nonexistent', background=False).sample(), {'error': 'no token'})
 
+    def test_proxmox_token_created_after_start_is_picked_up(self):
+        tok = os.path.join(tempfile.mkdtemp(), 'tok')
+        c = proxmox.ProxmoxCollector('h', tok, background=False, fetch=lambda url, headers, pin: {'data': []},
+                                     scan=lambda host, user: [])
+        self.assertEqual(c.sample(), {'error': 'no token'})
+        with open(tok, 'w') as f:
+            f.write('dash@pve!dashboard=secret\n')
+        self.assertNotIn('no token', str(c.sample().get('error')))
+        self.assertEqual(c.token, 'dash@pve!dashboard=secret')
+
 
 class TestStream(unittest.TestCase):
     SS = ('0 0 192.168.1.2:53412 192.168.1.223:1935\n'

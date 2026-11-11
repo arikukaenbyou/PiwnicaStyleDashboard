@@ -171,6 +171,14 @@ Configuration: `~/.config/piwnica-dashboard/config.toml` is written on first sta
 `auto` and commented. Set a monitor by connector name (`monitor = "DP-1"`), a holdout path, or a temperature
 limit (`cpu_limit = 95`) when the automatic guess is wrong.
 
+### Tokens from a secret store (pre-start hook)
+
+Before every `run` (autostart, `install.sh`, a restart from a watcher, a manual start) the launcher runs
+`~/.config/piwnica-dashboard/pre-start` if it exists and is executable (30 s limit, output to the log; a missing
+or failing hook never blocks the start, `PIWNICA_NO_PRESTART=1` skips it). Use it to write panel tokens from a
+secret store into the `token_file` paths, e.g. a tmpfs under `$XDG_RUNTIME_DIR`, instead of keeping them on
+disk. A token file that appears later is picked up without a restart.
+
 ### Holdout mask
 
 A PNG with **exactly the monitor's size**; alpha > 0 where the character is (a soft, blurred edge looks best).
