@@ -113,6 +113,43 @@ class TestBuildsCollector(unittest.TestCase):
         self.assertEqual(items['companion_app']['version'], 'v0.5.0')
         self.assertEqual(items['companion_app']['status'], 'failure')
 
+    def test_online_runners_drops_offline(self):
+        doc = [
+            {'name': 'lxc-runner', 'status': 'idle', 'labels': ['ubuntu-latest', 'deploy']},
+            {'name': 'ariku-pc', 'status': 'offline', 'labels': ['ubuntu-latest']},
+            {'name': 'zz-runner', 'status': 'active'},
+        ]
+        self.assertEqual(builds.online_runners(doc), [
+            {'name': 'zz-runner', 'status': 'active'},
+            {'name': 'proxmox', 'status': 'idle'},
+        ])
+        self.assertEqual(builds.online_runners({'runners': []}), [])
+        self.assertEqual(builds.online_runners(None), [])
+
+    def test_runners_fallback_and_unknown(self):
+        with open(self.token_file, 'w') as f:
+            f.write(TOKEN)
+
+        def admin_forbidden(url, headers, timeout=5):
+            if '/admin/actions/runners' in url:
+                raise OSError('HTTP 403')
+            if '/user/actions/runners' in url:
+                return [{'name': 'ariku-pc', 'status': 'active'}]
+            return {}
+
+        col = builds.BuildsCollector('https://git.ariku.pl', self.token_file, repos=['luneta'],
+                                     background=False, fetch=admin_forbidden, clock=lambda: 1000.0)
+        self.assertEqual(col.sample()['runners'], [{'name': 'ariku-pc', 'status': 'active'}])
+
+        def all_forbidden(url, headers, timeout=5):
+            if 'runners' in url:
+                raise OSError('HTTP 403')
+            return {}
+
+        col = builds.BuildsCollector('https://git.ariku.pl', self.token_file, repos=['luneta'],
+                                     background=False, fetch=all_forbidden, clock=lambda: 1000.0)
+        self.assertIsNone(col.sample()['runners'])
+
     def test_api_error_handled_gracefully(self):
         with open(self.token_file, 'w') as f:
             f.write(TOKEN)
@@ -150,6 +187,9 @@ class TestBuildsDraw(unittest.TestCase):
                 {'name': 'Companion (Android)', 'version': 'v0.5.0', 'status': 'success', 'pct': 100,
                  'duration': 1800, 'age': 400, 'workflow': 'android.yml', 'job': 'build'},
             ], 'active': 2, 'total': 3, 'age': 10},
+            {'items': [{'name': 'Luneta', 'status': 'running', 'pct': None, 'elapsed': 30}],
+             'runners': [{'name': 'ariku-pc', 'status': 'active'}, {'name': 'proxmox', 'status': 'idle'}]},
+            {'items': [{'name': 'Luneta', 'status': 'waiting', 'pct': 0}], 'runners': []},
         ):
             dash = self.render(data)
             self.assertIsInstance(dash.cache, cairo.ImageSurface)

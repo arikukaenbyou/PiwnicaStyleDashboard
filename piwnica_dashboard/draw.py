@@ -982,8 +982,22 @@ class Dashboard:
 
         now = time.time()
         avail_h = h - 42 - 18
-        slot_h = max(38, avail_h // len(items))
         yy = y + 40
+        runners = b.get('runners')
+        if runners is not None:
+            # Only runners that are up right now; busy (active) first, idle muted.
+            self.text(cr, x + 12, yy + 9, 'runners', 9, DIM)
+            rx = x + 12 + cr.text_extents('runners').x_advance + 8
+            if not runners:
+                self.text(cr, rx, yy + 9, 'none online', 9, DANGER, bold=True)
+            for r in runners:
+                busy = r.get('status') == 'active'
+                label = f'{"●" if busy else "○"} {r.get("name", "?")}{" busy" if busy else ""}'
+                self.text(cr, rx, yy + 9, label, 9, ACCENT if busy else MUTED, bold=busy)
+                rx += cr.text_extents(label).x_advance + 12
+            yy += 16
+            avail_h -= 16
+        slot_h = max(38, avail_h // len(items))
         for it in items[:3]:
             name = it.get('name') or it.get('repo') or '?'
             ver = it.get('version') or ''

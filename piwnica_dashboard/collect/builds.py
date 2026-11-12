@@ -14,6 +14,19 @@ DISPLAY_NAMES = {
     'companion_app': 'Companion (Android)',
 }
 
+# Runner names as registered in Forgejo -> what the panel shows.
+RUNNER_NAMES = {'lxc-runner': 'proxmox'}
+ONLINE = ('active', 'idle')
+
+
+def online_runners(doc):
+    """Runners that are up right now (Forgejo status active/idle), busy ones first; offline ones are dropped."""
+    rows = doc if isinstance(doc, list) else (doc or {}).get('runners') or []
+    out = [{'name': RUNNER_NAMES.get(r.get('name'), r.get('name') or '?'), 'status': r['status']}
+           for r in rows if isinstance(r, dict) and r.get('status') in ONLINE]
+    out.sort(key=lambda r: (r['status'] != 'active', r['name']))
+    return out
+
 
 def iso(s):
     if not s:
@@ -215,7 +228,17 @@ class BuildsCollector:
                     'commit_sha': '',
                 })
         active = sum(1 for it in items if it.get('status') in ('running', 'waiting'))
-        return {'items': items, 'total': len(items), 'active': active}
+        return {'items': items, 'total': len(items), 'active': active, 'runners': self._fetch_runners(headers)}
+
+    def _fetch_runners(self, headers):
+        """Online runners, or None when the token may not list them (the panel then skips the line)."""
+        # Global runners need the admin endpoint; the user one covers a non-admin token.
+        for path in ('admin/actions/runners', 'user/actions/runners'):
+            try:
+                return online_runners(self.fetch(f'{self.base}/api/v1/{path}', headers, timeout=8))
+            except Exception:  # noqa: BLE001
+                continue
+        return None
 
     def sample(self):
         if self.token is None:
