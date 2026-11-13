@@ -11,6 +11,7 @@ the window and stops the page's ticker.
 """
 import json
 import os
+import signal
 
 import cairo
 import gi
@@ -19,6 +20,11 @@ import numpy as np
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+# JavaScriptCore suspends threads for its GC with SIGUSR1 unless told otherwise, and app.py takes
+# SIGUSR1 (GLib.unix_signal_add) for its hide/show cycle: the GC then waits forever for a thread that
+# never stops and the whole dashboard hangs. Set before WebKit loads.
+os.environ.setdefault('JSC_SIGNAL_FOR_GC', str(int(signal.SIGUSR2)))
 
 try:
     gi.require_version('WebKit2', '4.1')

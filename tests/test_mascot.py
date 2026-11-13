@@ -1,4 +1,5 @@
 import os
+import signal
 import tempfile
 import unittest
 
@@ -13,6 +14,10 @@ from piwnica_dashboard import config as config_mod
 
 @unittest.skipIf(mascot is None, 'python-gobject not installed')
 class TestMascot(unittest.TestCase):
+    def test_webkit_gc_keeps_off_the_apps_sigusr1(self):
+        # JavaScriptCore's GC signal on SIGUSR1 (app.py's hide/show cycle) hung the dashboard
+        self.assertEqual(os.environ.get('JSC_SIGNAL_FOR_GC'), str(int(signal.SIGUSR2)))
+
     def test_auto_place_is_bottom_centre_half_wide_2_to_3(self):
         self.assertEqual(mascot.place({'rect': 'auto'}, 1200, 1920), [300, 1020, 600, 900])
 
