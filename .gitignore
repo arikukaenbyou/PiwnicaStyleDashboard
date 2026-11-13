@@ -7,3 +7,7 @@ config.toml
 /src/
 *.pkg.tar.*
 *.tar.gz
+# pliki środowiskowe i logi nigdy do repo (repo publiczne)
+.env*
+*.log
+.pytest_cache/
