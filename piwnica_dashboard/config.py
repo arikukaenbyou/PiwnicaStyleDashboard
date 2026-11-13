@@ -27,7 +27,7 @@ DEFAULTS = {
                 'status_token_file': '~/.config/piwnica-dashboard/updater-status.token'},
     'claude': {'enabled': True, 'credentials': '~/.claude/.credentials.json', 'interval': 60,
                'proxy_host': 'auto', 'ssh_user': 'root', 'pool': 'auto',
-               'codex_credentials': '~/.codex/auth.json'},
+               'codex_credentials': '~/.codex/auth.json', 'copilot': True},
     'builds': {'enabled': True, 'forgejo_url': 'https://git.ariku.pl',
                'token_file': '~/.config/piwnica-dashboard/forgejo.token',
                'repos': ['afterlife', 'luneta', 'companion_app'],
@@ -179,6 +179,8 @@ interval = 30
 enabled = true
 credentials = "~/.claude/.credentials.json"
 codex_credentials = "~/.codex/auth.json"
+# GitHub Copilot monthly quotas, with the GitHub CLI's login (`gh auth token`); false turns them off.
+copilot = true
 proxy_host = "auto"
 ssh_user = "root"
 pool = "auto"

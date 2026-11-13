@@ -174,6 +174,32 @@ class TestCollector(unittest.TestCase):
         v = c.sample()
         self.assertEqual((len(v['limits']), v['error']), (2, 'HTTP 429'))
 
+    def test_429_backs_off_and_recovers(self):
+        self.write(expires_at=1e9)
+        calls, fail = [], [True]
+        def fetch(url, h, **kw):
+            calls.append(self.now)
+            if fail[0]:
+                raise OSError('HTTP 429 rate_limit_error')
+            return DOC
+        c = self.collector(fetch)
+        for _ in range(40):  # 40 min of samples, one per minute
+            c.sample()
+            self.now += 60
+        self.assertLess(len(calls), 10)
+        self.assertLessEqual(c.poller.interval, claude.MAX_BACKOFF)
+        fail[0] = False
+        self.now += claude.MAX_BACKOFF
+        c.sample()
+        self.assertEqual((c.poller.fails, c.sample()['error']), (0, None))
+        self.assertEqual(c.poller.interval, c.interval)
+
+    def test_window_past_its_reset_shows_zero(self):
+        doc = {'limits': [{'kind': 'session', 'percent': 100, 'severity': 'critical',
+                           'resets_at': '2026-01-01T00:00:00Z'}]}
+        lim = claude.view(doc, datetime(2026, 1, 1, 1, tzinfo=timezone.utc).timestamp())['limits'][0]
+        self.assertEqual((lim['pct'], lim['severity'], lim['resets_at']), (0.0, 'normal', None))
+
     def test_collector_merges_228_and_228_2_limits(self):
         self.write()
         codex_path = os.path.join(tempfile.mkdtemp(), 'auth.json')
@@ -226,6 +252,38 @@ class TestDraw(unittest.TestCase):
                 dash = Dashboard({'claude': (0, 0, 380, h)}, c)
                 dash.render()
                 self.assertIsInstance(dash.cache, cairo.ImageSurface)
+
+
+class TestCopilot(unittest.TestCase):
+    DOC = {'quota_snapshots': {
+        'chat': {'entitlement': 200, 'percent_remaining': 0.0, 'unlimited': False},
+        'completions': {'entitlement': 2000, 'percent_remaining': 88.1, 'unlimited': False},
+        'premium_interactions': {'entitlement': 0, 'percent_remaining': 0.0, 'unlimited': False}},
+        'quota_reset_date_utc': '2026-11-01T00:00:00.000Z'}
+
+    def test_view_skips_quotas_the_plan_lacks(self):
+        reset = datetime(2026, 11, 1, tzinfo=timezone.utc).timestamp()
+        self.assertEqual([(l['label'], round(l['pct'], 1), l['severity'], l['resets_at'])
+                          for l in claude.copilot_view(self.DOC)],
+                         [('copilot chat', 100.0, 'critical', reset), ('copilot completions', 11.9, 'normal', reset)])
+        self.assertEqual(claude.copilot_view({'quota_snapshots': None}), [])
+
+    def test_collector_uses_gh_token_and_hides_it_in_errors(self):
+        seen = {}
+
+        def fetch(url, headers, **kw):
+            seen['auth'] = headers['Authorization']
+            raise OSError('HTTP 401 for gho-secret')
+
+        c = claude.ClaudeCollector('/nonexistent', background=False, fetch=fetch, copilot=True,
+                                   gh_token=lambda: 'gho-secret')
+        err = c.copilot_poller.poll().error
+        self.assertEqual(seen['auth'], 'token gho-secret')
+        self.assertIn('HTTP 401', err)
+        self.assertNotIn('gho-secret', err)
+        c = claude.ClaudeCollector('/nonexistent', background=False, fetch=lambda *a, **k: self.DOC, copilot=True,
+                                   gh_token=lambda: 'gho-secret')
+        self.assertEqual([l['group'] for l in c.sample()['limits']], ['Copilot', 'Copilot'])
 
 
 if __name__ == '__main__':

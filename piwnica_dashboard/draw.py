@@ -54,15 +54,20 @@ def fmt_size(b, sign=False):
 
 
 def fmt_left(s):
-    """Countdown: 42m, 3h12, 1d17h."""
+    """Countdown: 42min, 3h 12min, 1d 17h."""
     if s is None:
         return '--'
     s = max(0, int(s))
     if s < 3600:
-        return f'{s // 60}m'
+        return f'{s // 60}min'
     if s < 86400:
-        return f'{s // 3600}h{s % 3600 // 60:02d}'
-    return f'{s // 86400}d{s % 86400 // 3600}h'
+        return f'{s // 3600}h {s % 3600 // 60}min'
+    return f'{s // 86400}d {s % 86400 // 3600}h'
+
+
+def fmt_at(ts):
+    """Local date and time of a reset: 26.10 14:00."""
+    return datetime.fromtimestamp(ts).strftime('%d.%m %H:%M')
 
 
 PHASE = {'sync': 'SYNC', 'download': 'DOWNLOAD', 'verify': 'VERIFY', 'install': 'INSTALL', 'hooks': 'HOOKS',

@@ -74,6 +74,7 @@ class Collector:
                 ssh_user=cl.get('ssh_user', 'root'),
                 pool=cl.get('pool', 'auto'),
                 codex_credentials=cl.get('codex_credentials', '~/.codex/auth.json'),
+                copilot=bool(cl.get('copilot', True)),
             )
         fg = cfg.get('forge', {})
         if fg.get('enabled', True):

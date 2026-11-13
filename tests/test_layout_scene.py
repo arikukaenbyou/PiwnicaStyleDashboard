@@ -192,6 +192,10 @@ class TestScene(unittest.TestCase):
                                 for x, y, w, h in rects))
 
 
+if __name__ == '__main__':
+    unittest.main()
+
+
 class TestLunetaPanel(unittest.TestCase):
     def test_nodes_line_clears_analysis_bar_and_footer(self):
         """Two games + analysis in a 210 px panel: the nodes line sits below the bar's glow."""
@@ -216,6 +220,14 @@ class TestLunetaPanel(unittest.TestCase):
         self.assertLessEqual(nodes_y + desc * nodes_size + 2, footer_y - cap * footer_size)  # above the footer
 
 
+class TestFormat(unittest.TestCase):
+    def test_reset_shown_as_local_date_and_time(self):
+        from datetime import datetime
+        from piwnica_dashboard.draw import fmt_at
+        self.assertEqual(fmt_at(datetime(2026, 10, 26, 14, 5).timestamp()), '26.10 14:05')
 
-if __name__ == '__main__':
-    unittest.main()
+    def test_countdown_in_hours_and_minutes(self):
+        from piwnica_dashboard.draw import fmt_left
+        self.assertEqual(fmt_left(42 * 60), '42min')
+        self.assertEqual(fmt_left(6600), '1h 50min')
+        self.assertEqual(fmt_left(86400 + 17 * 3600), '1d 17h')

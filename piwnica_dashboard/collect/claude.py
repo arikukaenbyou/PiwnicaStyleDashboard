@@ -1,5 +1,5 @@
 """Claude plan limits: the 5-hour session, the weekly limits and extra usage, as Claude Code's /usage shows them,
-plus the 228 and 228-2 CLIProxyAPI (Antigravity) accounts and ChatGPT (Codex) limits when configured.
+plus the 228 and 228-2 CLIProxyAPI (Antigravity) accounts, ChatGPT (Codex) and GitHub Copilot limits when configured.
 
 GET https://api.anthropic.com/api/oauth/usage with Claude Code's own OAuth access token from
 ~/.claude/.credentials.json. The endpoint is not documented, so every field is optional here. The file is
@@ -18,6 +18,9 @@ from .poll import Poller, get_json
 
 USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 CODEX_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage'
+COPILOT_USAGE_URL = 'https://api.github.com/copilot_internal/user'  # undocumented, what the Copilot extension asks
+COPILOT_QUOTAS = (('premium_interactions', 'copilot premium', 'premium'), ('chat', 'copilot chat', 'chat'),
+                  ('completions', 'copilot completions', 'compl.'))
 LIMIT_LABELS = {'session': '5h session', 'weekly_all': 'week', 'weekly_opus': 'week opus',
                 'weekly_sonnet': 'week sonnet'}
 # older responses without limits[]
@@ -131,6 +134,16 @@ def read_codex_credentials(path='~/.codex/auth.json'):
         return None
     acc = tokens.get('account_id')
     return {'token': tok, 'account_id': acc if isinstance(acc, str) and acc else None}
+
+
+def read_gh_token(runner=subprocess.run):
+    """The GitHub CLI's OAuth token (`gh auth token`, from the keyring), or None. Never stored or logged."""
+    try:
+        r = runner(['gh', 'auth', 'token'], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    tok = r.stdout.strip() if r.returncode == 0 else ''
+    return tok or None
 
 
 def resolve_proxy_host(proxy_host='auto', settings_path='~/.claude/settings.json', env=None):
@@ -310,6 +323,39 @@ def codex_view(doc):
     return out
 
 
+def copilot_view(doc):
+    """GitHub Copilot monthly quotas from api.github.com/copilot_internal/user; quotas the plan does not have
+    (entitlement 0) or has without a limit are left out."""
+    snaps = (doc or {}).get('quota_snapshots') if isinstance(doc, dict) else None
+    if not isinstance(snaps, dict):
+        return []
+    resets = _ts(doc.get('quota_reset_date_utc'))
+    out = []
+    for key, label, short in COPILOT_QUOTAS:
+        q = snaps.get(key)
+        if not isinstance(q, dict) or q.get('unlimited') or not _num(q.get('entitlement')):
+            continue
+        left = _num(q.get('percent_remaining'))
+        if left is None:
+            continue
+        pct = max(0.0, min(100.0, 100.0 - left))
+        out.append({'kind': f'copilot_{key}', 'label': label, 'short_label': short, 'group': 'Copilot', 'pct': pct,
+                    'severity': 'critical' if pct >= 90 else 'warning' if pct >= 70 else 'normal',
+                    'resets_at': resets})
+    return out
+
+
+MAX_BACKOFF = 900
+
+
+def _rolled(limits, now):
+    """A window whose reset has passed starts again from zero, even when the refresh failed."""
+    for lim in limits:
+        if lim.get('resets_at') and lim['resets_at'] <= now:
+            lim.update(pct=0.0, severity='normal', resets_at=None)
+    return limits
+
+
 def view(doc, now, fetched_at=None):
     """The panel's data from an /api/oauth/usage document."""
     limits = []
@@ -337,23 +383,27 @@ def view(doc, now, fetched_at=None):
     breakdown = sorted(({'name': r.get('display_name') or r.get('key') or '?', 'pct': _num(r.get('percent'))}
                         for r in rows if isinstance(r, dict) and _num(r.get('percent'))),
                        key=lambda r: -r['pct'])
-    return {'limits': limits, 'extra': extra, 'breakdown': breakdown,
+    return {'limits': _rolled(limits, now), 'extra': extra, 'breakdown': breakdown,
             'age': now - fetched_at if fetched_at else None}
 
 
 class ClaudeCollector:
     def __init__(self, credentials='~/.claude/.credentials.json', interval=60, background=True, fetch=get_json,
                  clock=time.time, proxy_host='', ssh_user='root', pool='auto', proxy_fetch=scan_antigravity_quota,
-                 codex_credentials=''):
+                 codex_credentials='', copilot=False, gh_token=read_gh_token):
         self.path, self.fetch, self.clock = credentials, fetch, clock
         self.proxy_host_cfg, self.ssh_user, self.pool = proxy_host, ssh_user, pool
         self.proxy_fetch = proxy_fetch
         self.codex_path = codex_credentials
         self.creds = None
         self.codex_creds = None
+        self.interval = interval
         self.poller = Poller(self.fetch_usage, interval, background, clock)
         self.proxy_poller = Poller(self.fetch_proxy_usage, interval, background, clock) if proxy_host else None
         self.codex_poller = Poller(self.fetch_codex_usage, interval, background, clock) if codex_credentials else None
+        self.gh_token = gh_token
+        # monthly quotas move slowly: every 5 minutes is plenty
+        self.copilot_poller = Poller(self.fetch_copilot_usage, max(interval, 300), background, clock) if copilot else None
 
     def fetch_usage(self):
         c = self.creds
@@ -387,6 +437,16 @@ class ClaudeCollector:
         except OSError as e:
             raise OSError(str(e).replace(c['token'], '…')) from None
 
+    def fetch_copilot_usage(self):
+        tok = self.gh_token()
+        if not tok:
+            raise OSError('no gh login (gh auth login)')
+        try:
+            return self.fetch(COPILOT_USAGE_URL, {'Authorization': f'token {tok}', 'Accept': 'application/json',
+                                                  'User-Agent': 'piwnica-dashboard'}, timeout=10)
+        except OSError as e:
+            raise OSError(str(e).replace(tok, '…')) from None
+
     def sample(self):
         self.creds = read_credentials(self.path)
         self.codex_creds = read_codex_credentials(self.codex_path) if self.codex_path else None
@@ -406,8 +466,16 @@ class ClaudeCollector:
             if cp.value:
                 codex_limits = codex_view(cp.value)
                 codex_at = cp.at
-        extra_limits = proxy_limits + codex_limits
-        extra_at = proxy_at or codex_at
+        copilot_limits, copilot_err, copilot_at = [], None, None
+        if self.copilot_poller:
+            gp = self.copilot_poller.poll()
+            copilot_err = gp.error.split(': ', 1)[-1] if gp.error else None
+            if gp.value:
+                copilot_limits = copilot_view(gp.value)
+                copilot_at = gp.at
+        extra_limits = proxy_limits + codex_limits + copilot_limits
+        extra_at = proxy_at or codex_at or copilot_at
+        codex_err = ' · '.join(filter(None, (codex_err, copilot_err))) or None
         if not self.creds:
             if fallback_claude or extra_limits:
                 now = self.clock()
@@ -416,6 +484,9 @@ class ClaudeCollector:
                         'error': ' · '.join(filter(None, ('no local credentials', proxy_err, codex_err)))}
             return {'error': 'no credentials'}
         p = self.poller.poll()
+        # HTTP 429: polling every minute keeps the endpoint rate-limited, back off up to 15 min
+        throttled = bool(p.error and 'HTTP 429' in p.error)
+        p.interval = min(self.interval * 2 ** min(p.fails, 4), MAX_BACKOFF) if throttled else self.interval
         err = p.error.split(': ', 1)[-1] if p.error else None  # Poller prefixes the exception type
         if err and not p.value and fallback_claude and err.startswith('HTTP 429'):
             err = None

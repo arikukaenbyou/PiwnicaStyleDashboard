@@ -239,7 +239,7 @@ def cmd_claude(cfg, as_json=False):
     import json
     import time
     from .collect.claude import ClaudeCollector
-    from .draw import fmt_left
+    from .draw import fmt_at, fmt_left
 
     cl = cfg.get('claude', {})
     data = ClaudeCollector(
@@ -249,6 +249,7 @@ def cmd_claude(cfg, as_json=False):
         ssh_user=cl.get('ssh_user', 'root'),
         pool=cl.get('pool', 'auto'),
         codex_credentials=cl.get('codex_credentials', '~/.codex/auth.json'),
+        copilot=bool(cl.get('copilot', True)),
     ).sample()
     if 'limits' not in data:
         print(f'Claude limits unavailable: {data.get("error")}')
@@ -265,7 +266,7 @@ def cmd_claude(cfg, as_json=False):
             hdr = f'{grp} ({data["plan"]})' if grp == 'Claude' and data.get('plan') else grp
             print(f'{hdr}:')
         lbl = lim.get('short_label') or lim['label']
-        reset = f'  resets in {fmt_left(lim["resets_at"] - now)}' if lim.get('resets_at') else ''
+        reset = f'  resets {fmt_at(lim["resets_at"])} (in {fmt_left(lim["resets_at"] - now)})' if lim.get('resets_at') else ''
         print(f'  {lbl:<12} {lim["pct"]:>4.0f}%{reset}' + (f'  ({lim["severity"]})' if lim['severity'] != 'normal' else ''))
     if data.get('extra'):
         print(f'  extra usage  {data["extra"]["pct"] or 0:>4.0f}%')

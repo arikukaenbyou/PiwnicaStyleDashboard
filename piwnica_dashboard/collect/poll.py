@@ -19,6 +19,7 @@ class Poller:
         self.value, self.error, self.at = None, None, None
         self.started = -1e18
         self.busy = False
+        self.fails = 0  # consecutive failed runs, for callers that back off
 
     def poll(self):
         """Start a run when one is due; returns self (value / error / at / busy)."""
@@ -38,8 +39,10 @@ class Poller:
     def _run(self):
         try:
             self.value, self.error = self.fn(), None
+            self.fails = 0
         except Exception as e:  # noqa: BLE001 -- shown in the panel, retried next interval
             self.error = f'{type(e).__name__}: {e}'[:120]
+            self.fails += 1
         finally:
             self.at, self.busy = self.clock(), False
 
