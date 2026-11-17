@@ -310,7 +310,7 @@ def cmd_builds(cfg, as_json=False):
     return 0
 
 
-def cmd_mascot_holdout(args, cfg):
+def cmd_mascot(args, cfg):
     from . import mascot
     from .app import monitors
     if mascot.WebKit2 is None:
@@ -321,7 +321,10 @@ def cmd_mascot_holdout(args, cfg):
     if i is None:
         print('piwnica-dashboard: no monitor found')
         return 1
-    return mascot.write_holdout(cfg, mons[i], args.out)
+    log = lambda s: print(s, flush=True)  # noqa: E731
+    if args.cmd == 'mascot-acts':
+        return mascot.write_acts(cfg, mons[i], log=log)
+    return mascot.write_holdout(cfg, mons[i], args.out, log=log)
 
 
 def main(argv=None):
@@ -344,6 +347,7 @@ def main(argv=None):
     bld.add_argument('--json', action='store_true', help='print the builds view as JSON')
     mh = sub.add_parser('mascot-holdout', help='save the [mascot] character outline as a holdout PNG')
     mh.add_argument('out')
+    sub.add_parser('mascot-acts', help='play every [mascot] motion once and leave out the ones the window cuts off')
     sc = sub.add_parser('screenshot', help='render one frame to a PNG (no window needed)')
     sc.add_argument('out')
     sc.add_argument('--size', default='1200x1920')
@@ -368,8 +372,8 @@ def main(argv=None):
         return cmd_claude(cfg, args.json)
     if args.cmd == 'builds':
         return cmd_builds(cfg, args.json)
-    if args.cmd == 'mascot-holdout':
-        return cmd_mascot_holdout(args, cfg)
+    if args.cmd in ('mascot-holdout', 'mascot-acts'):
+        return cmd_mascot(args, cfg)
     try:
         os.nice(10)
     except OSError:

@@ -99,6 +99,147 @@ class TestMascot(unittest.TestCase):
         self.assertEqual(mascot.idle_plan(model), [])
 
 
+def _model(d, catalog=False):
+    """A model with motions in and outside Idle and three expressions; optionally its catalogue."""
+    import json
+    os.makedirs(os.path.join(d, 'motions'), exist_ok=True)
+    groups = {'Idle': ['idle'], 'wave': ['wave'], 'dance_happy': ['dance_happy'], 'idle_bored': ['idle_bored'],
+              'hair_fix': ['hair_fix'], 'dark_casting': ['dark_casting'], 'Empty': []}
+    for names in groups.values():
+        for n in names:
+            with open(os.path.join(d, 'motions', f'{n}.motion3.json'), 'w') as f:
+                json.dump({'Meta': {'Duration': 4.0}}, f)
+    open(os.path.join(d, 'w.moc3'), 'w').close()
+    model = os.path.join(d, 'w.model3.json')
+    with open(model, 'w') as f:
+        json.dump({'FileReferences': {
+            'Moc': 'w.moc3',
+            'Motions': {g: [{'File': f'motions/{n}.motion3.json'} for n in names] for g, names in groups.items()},
+            'Expressions': [{'Name': n, 'File': f'{n}.exp3.json'} for n in ('happy', 'smug', 'void')]}}, f)
+    sec = {}
+    if catalog:
+        sec['act_catalog'] = os.path.join(d, 'catalog.json')
+        with open(sec['act_catalog'], 'w') as f:
+            json.dump({'chibi': {'model3': 'runtime-chibi/c.model3.json', 'motions': {'wave': {'category': 'dance'}}},
+                       'main': {'model3': 'runtime/w.model3.json', 'motions': {
+                           'wave': {'category': 'gesture', 'tags': ['greeting'], 'face': False, 'duration': 3.2},
+                           'dance_happy': {'category': 'dance', 'tags': ['dance'], 'face': True, 'duration': 7.5},
+                           'idle_bored': {'category': 'idle', 'tags': ['idle'], 'face': True, 'duration': 10.0},
+                           'hair_fix': {'category': 'activity', 'tags': ['cute'], 'face': False, 'duration': 3.0},
+                           'dark_casting': {'category': 'gesture', 'tags': ['wow', 'shadow'], 'duration': 5.0}}}}, f)
+    return model, sec
+
+
+@unittest.skipIf(mascot is None, 'python-gobject not installed')
+class TestMascotActs(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.cache = os.environ.get('XDG_CACHE_HOME')
+        os.environ['XDG_CACHE_HOME'] = os.path.join(self.d, 'cache')  # never the machine's own measurement
+
+    def tearDown(self):
+        if self.cache is None:
+            del os.environ['XDG_CACHE_HOME']
+        else:
+            os.environ['XDG_CACHE_HOME'] = self.cache
+
+    def test_kinds_come_from_the_group_names_without_a_catalogue(self):
+        model, sec = _model(self.d)
+        a = mascot.acts(model, sec)
+        self.assertEqual(a['gesture'], ['wave', 'hair_fix', 'dark_casting'])  # Idle and the empty group are out
+        self.assertEqual(a['dance'], ['dance_happy'])
+        self.assertEqual(a['idle'], ['idle_bored'])
+        self.assertEqual(a['emote'], ['happy', 'smug', 'void'])
+        self.assertEqual(a['plain'], [])  # nothing known about the faces
+        self.assertEqual(a['every'], [20.0, 60.0])
+        self.assertFalse(a['log'])
+
+    def test_the_catalogue_gives_kind_face_and_length(self):
+        model, sec = _model(self.d, catalog=True)
+        a = mascot.acts(model, sec)
+        self.assertEqual(a['gesture'], ['wave', 'hair_fix', 'dark_casting'])  # the part for this model, not chibi
+        self.assertEqual(a['plain'], ['wave', 'hair_fix'])
+        secs = {m['name']: m['seconds'] for m in mascot.act_motions(model, sec)}
+        self.assertEqual(secs['wave'], 3.2)
+        self.assertEqual(secs['dance_happy'], 7.5)
+        self.assertEqual({m['name']: m['seconds'] for m in mascot.act_motions(model, {})}['wave'], 4.0)  # the file
+
+    def test_skip_by_name_tag_and_idle_skip(self):
+        model, sec = _model(self.d, catalog=True)
+        sec.update(act_skip=['wow', 'smug', 'idle_bored'], idle_skip=['hair_fix'])
+        a = mascot.acts(model, sec)
+        self.assertEqual(a['gesture'], ['wave'])
+        self.assertEqual(a['idle'], [])
+        self.assertEqual(a['emote'], ['happy', 'void'])
+
+    def test_only_the_kinds_asked_for_and_none_at_all(self):
+        model, sec = _model(self.d)
+        a = mascot.acts(model, dict(sec, acts=['dance', 'bogus']))
+        self.assertEqual((a['gesture'], a['dance'], a['idle'], a['emote']), ([], ['dance_happy'], [], []))
+        a = mascot.acts(model, dict(sec, acts=[]))
+        self.assertFalse(any(a[k] for k in mascot.ACT_KINDS))
+        self.assertFalse(any(mascot.acts(os.path.join(self.d, 'none.model3.json'), {})[k] for k in mascot.ACT_KINDS))
+
+    def test_pause_between_acts_is_clamped(self):
+        self.assertEqual(mascot.act_every({'act_every': [1, 2]}), [5.0, 5.0])
+        self.assertEqual(mascot.act_every({'act_every': [30, 10]}), [30.0, 30.0])
+        self.assertEqual(mascot.act_every({'act_every': 'often'}), [20.0, 60.0])
+        self.assertEqual(mascot.act_every({}), [20.0, 60.0])
+
+    def test_measured_cut_off_motions_are_left_out_until_the_model_or_box_changes(self):
+        import json
+        model, sec = _model(self.d)
+        path = mascot.acts_cache_path()
+        self.assertTrue(path.startswith(self.d))
+        os.makedirs(os.path.dirname(path))
+        with open(path, 'w') as f:
+            json.dump({**mascot._acts_key(model, sec, (430, 1250)), 'clipped': ['wave']}, f)
+        self.assertEqual(mascot.acts(model, sec, (430, 1250))['gesture'], ['hair_fix', 'dark_casting'])
+        self.assertEqual(mascot.acts(model, sec, (600, 1250))['gesture'][0], 'wave')  # another box: not measured
+        self.assertEqual(mascot.acts(model, dict(sec, zoom=1.2), (430, 1250))['gesture'][0], 'wave')
+        os.utime(os.path.join(self.d, 'w.moc3'), (1, 1))  # a new export
+        self.assertEqual(mascot.acts(model, sec, (430, 1250))['gesture'][0], 'wave')
+
+    def test_a_motion_is_cut_off_when_it_reaches_an_edge_the_rest_pose_does_not(self):
+        base = np.zeros((200, 100), np.uint8)
+        base[50:200, 30:70] = 255  # stands on the bottom edge, clear of the sides and the top
+        self.assertFalse(mascot.is_clipped(base, base))
+        arm = base.copy()
+        arm[80:130, 0:30] = 255  # 50 px of the left edge
+        self.assertTrue(mascot.is_clipped(arm, base))
+        jump = base.copy()
+        jump[0:50, 0:60] = 255  # the top edge
+        self.assertTrue(mascot.is_clipped(jump, base))
+        inside = base.copy()
+        inside[80:130, 5:30] = 255  # reaches far but stays inside
+        self.assertFalse(mascot.is_clipped(inside, base))
+        tail = base.copy()
+        tail[120:140, 70:100] = 255  # the rest pose already touches the right edge here...
+        swing = base.copy()
+        swing[135:160, 70:100] = 255  # ...and the motion touches it a little lower
+        self.assertFalse(mascot.is_clipped(swing, tail))
+        brush = base.copy()
+        brush[80:100, 0:30] = 255  # a strand of hair brushing the edge: too little to count
+        self.assertFalse(mascot.is_clipped(brush, base))
+
+    def test_page_gets_the_acts_and_a_measuring_run_gets_none(self):
+        model, sec = _model(self.d)
+        paths = {'model': model, 'core': '/c.js', 'pixi': '/p.js', 'cubism4': '/x.js'}
+        html = mascot.page_html(paths, 300, 900, dict(sec, act_every=[30, 90], act_log=True))
+        self.assertIn('"dance": ["dance_happy"]', html)
+        self.assertIn('"every": [30.0, 90.0]', html)
+        self.assertIn('"log": true', html)
+        for name in ('core', 'pixi', 'cubism4'):
+            open(os.path.join(self.d, name), 'w').close()
+        cfg = {'mascot': dict(sec, model=model, core=os.path.join(self.d, 'core'), libs=self.d)}
+        os.rename(os.path.join(self.d, 'pixi'), os.path.join(self.d, 'pixi.min.js'))
+        os.rename(os.path.join(self.d, 'cubism4'), os.path.join(self.d, 'cubism4.min.js'))
+        still, paths = mascot._still(cfg, log=lambda s: None)
+        self.assertEqual(still['acts'], [])
+        self.assertIn('"dance": []', mascot.page_html(paths, 300, 900, still))
+        self.assertEqual(mascot._still({'mascot': {}}, log=lambda s: None), (None, None))
+
+
 class TestMascotConfig(unittest.TestCase):
     def test_off_by_default_and_template_parses(self):
         import tomllib

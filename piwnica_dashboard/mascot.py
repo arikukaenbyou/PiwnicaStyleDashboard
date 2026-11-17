@@ -64,6 +64,7 @@ def page_html(paths, w, h, sec):
            'zoom': float(sec.get('zoom', 1.0)), 'eyes': float(sec.get('eyes', 0.2)),
            'reach': max(1.0, float(sec.get('reach', 700))),
            'fade': max(0.0, min(1.0, float(sec.get('fade', 0.0)))),
+           'acts': acts(paths['model'], sec, (w, h)),
            **{k: 'file://' + p for k, p in paths.items()}}
     with open(PAGE, encoding='utf-8') as f:
         return f.read().replace('/*CONFIG*/{}', json.dumps(cfg))
@@ -223,59 +224,174 @@ def idle_skip(model_path, sec):
     return [i for i, (name, _p) in enumerate(idle_motions(model_path)) if name in names]
 
 
+def _duration(path, default=5.0):
+    try:
+        with open(path, encoding='utf-8') as f:
+            return float(json.load(f)['Meta']['Duration'])
+    except (OSError, ValueError, KeyError, TypeError):
+        return default
+
+
 def idle_plan(model_path, cap=15.0, skip=()):
     """[(index, seconds)] of the model's Idle motions -- every pose it takes at rest, so the holdout
     covers all of them (an arm or the hair swings past any single frame). [] without an Idle group."""
-    plan = []
-    for i, (_name, path) in enumerate(idle_motions(model_path)):
-        if i in skip:
+    return [(i, max(1.0, min(cap, _duration(path))))
+            for i, (_name, path) in enumerate(idle_motions(model_path)) if i not in skip]
+
+
+# -- acts: what the character does on its own now and then (a gesture, a face, a dance) ----------
+
+ACT_KINDS = ('gesture', 'emote', 'dance', 'idle')
+
+
+def _model_refs(model_path):
+    try:
+        with open(model_path, encoding='utf-8') as f:
+            refs = json.load(f)['FileReferences']
+        return refs if isinstance(refs, dict) else {}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def _catalog(model_path, sec):
+    """{motion group: {'category', 'tags', 'face', 'duration'}} from [mascot] act_catalog: a JSON of
+    {<any key>: {'model3': <path>, 'motions': {...}}}, the part whose model3 has this model's file
+    name (else the first one). {} without a catalogue."""
+    path = os.path.expanduser(sec.get('act_catalog') or '')
+    if not path:
+        return {}
+    try:
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
+        parts = [p for p in data.values() if isinstance(p, dict) and isinstance(p.get('motions'), dict)]
+    except (OSError, ValueError, AttributeError):
+        return {}
+    name = os.path.basename(model_path)
+    for part in parts:
+        if os.path.basename(str(part.get('model3', ''))) == name:
+            return part['motions']
+    return parts[0]['motions'] if parts else {}
+
+
+def act_motions(model_path, sec):
+    """[{'name', 'kind', 'face', 'seconds'}] of the model's motion groups outside Idle (the first
+    motion of each). kind is 'gesture', 'dance' or 'idle': from the catalogue's category, else from
+    the group name (dance*, idle*). Left out: names and catalogue tags in act_skip, names in idle_skip."""
+    cat = _catalog(model_path, sec)
+    skip = set(sec.get('act_skip') or ()) | set(sec.get('idle_skip') or ())
+    base = os.path.dirname(model_path)
+    out = []
+    for group, entries in (_model_refs(model_path).get('Motions') or {}).items():
+        if group == 'Idle' or not isinstance(entries, list) or not entries:
             continue
+        e = cat.get(group)
+        e = e if isinstance(e, dict) else {}
+        if group in skip or skip.intersection(str(t) for t in e.get('tags') or ()):
+            continue
+        low = group.lower()
+        kind = e.get('category') if e else ('dance' if low.startswith('dance') else 'idle' if low.startswith('idle') else '')
         try:
-            with open(path, encoding='utf-8') as f:
-                d = float(json.load(f)['Meta']['Duration'])
-        except (OSError, ValueError, KeyError, TypeError):
-            d = 5.0
-        plan.append((i, max(1.0, min(cap, d))))
-    return plan
+            secs = float(e['duration'])
+        except (KeyError, TypeError, ValueError):
+            secs = _duration(os.path.join(base, str(entries[0].get('File', ''))))
+        out.append({'name': group, 'kind': kind if kind in ('dance', 'idle') else 'gesture',
+                    'face': bool(e.get('face', True)), 'seconds': secs})
+    return out
 
 
-def write_holdout(cfg, mon, out, log=print, every_ms=400):
-    """Opens the character where `run` puts it, looking straight ahead, plays each Idle motion in
-    turn and saves the outline of all the frames together as a holdout PNG of the monitor's size.
-    0 on success."""
-    sec = cfg['mascot']
-    paths, missing = files(sec)
-    if missing:
-        log(f'piwnica-dashboard: [mascot] files missing: {", ".join(missing)}')
-        return 1
-    m = Mascot(mon, sec, paths, log=log)
-    m.paused = True  # no cursor: the outline of the straight pose
-    # no Idle group: one frame after the idle fade-in, as before
-    plan = idle_plan(paths['model'], skip=idle_skip(paths['model'], sec)) or [(None, 2.5)]
-    st = {'code': 1, 'step': -1, 'until': 0.0, 'busy': False, 'acc': None, 'frames': 0}
+def act_every(sec):
+    """[shortest, longest] pause between two acts in seconds, at least 5 s."""
+    try:
+        lo, hi = (float(v) for v in sec.get('act_every', (20, 60)))
+    except (TypeError, ValueError):
+        lo, hi = 20.0, 60.0
+    lo = max(5.0, lo)
+    return [lo, max(lo, hi)]
 
-    def finish():
-        if st['acc'] is None:
-            log('piwnica-dashboard: no frame captured')
-        else:
-            try:
-                write_alpha_png(holdout(st['acc'], m.rect, mon['w'], mon['h']), out)
-                log(f'piwnica-dashboard: holdout {mon["w"]}x{mon["h"]} from {st["frames"]} frames '
-                    f'of {len(plan)} idle motion(s) -> {out}')
-                st['code'] = 0
-            except (cairo.Error, OSError) as e:
-                log(f'piwnica-dashboard: cannot write the holdout: {e}')
-        Gtk.main_quit()
 
-    def snapped(view, res):
+def acts_cache_path():
+    base = os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache')
+    return os.path.join(base, 'piwnica-dashboard', 'mascot-acts.json')
+
+
+def _acts_key(model_path, sec, size):
+    """What a `mascot-acts` measurement holds for: this model (file times), box size and zoom."""
+    moc = os.path.join(os.path.dirname(model_path), str(_model_refs(model_path).get('Moc', '')))
+    times = []
+    for p in (model_path, moc):
+        try:
+            times.append(os.path.getmtime(p))
+        except OSError:
+            times.append(0)
+    return {'model': os.path.abspath(model_path), 'mtime': times, 'size': [int(v) for v in size],
+            'zoom': float(sec.get('zoom', 1.0))}
+
+
+def clipped_acts(model_path, sec, size):
+    """Motions `mascot-acts` found cut off by the window edge, when its measurement is of this
+    model, size and zoom; else nothing is known and nothing is left out."""
+    try:
+        with open(acts_cache_path(), encoding='utf-8') as f:
+            data = json.load(f)
+        if all(data.get(k) == v for k, v in _acts_key(model_path, sec, size).items()):
+            return {str(n) for n in data.get('clipped') or ()}
+    except (OSError, ValueError, AttributeError):
+        pass
+    return set()
+
+
+def acts(model_path, sec, size=(0, 0)):
+    """What mascot.html may play by itself: the names per kind in [mascot] acts ('emote' = the
+    model's expressions), 'plain' = motions that leave the face alone, 'every' and 'log'."""
+    on = sec.get('acts')
+    on = [k for k in (ACT_KINDS if on is None else on) if k in ACT_KINDS]
+    out = {k: [] for k in ACT_KINDS}
+    out.update(plain=[], every=act_every(sec), log=bool(sec.get('act_log')))
+    if not on:
+        return out
+    clipped = clipped_acts(model_path, sec, size)
+    for m in act_motions(model_path, sec):
+        if m['kind'] in on and m['name'] not in clipped:
+            out[m['kind']].append(m['name'])
+            if not m['face']:
+                out['plain'].append(m['name'])
+    if 'emote' in on:
+        skip = set(sec.get('act_skip') or ())
+        for e in _model_refs(model_path).get('Expressions') or ():
+            name = e.get('Name') if isinstance(e, dict) else None
+            if name and name not in skip:
+                out['emote'].append(name)
+    return out
+
+
+def is_clipped(alpha, base, band=2, slack=30, need=40):
+    """True when `alpha` (everything a motion drew) reaches the left, right or top edge of the box
+    where `base` (the rest pose) does not: the window would cut the motion off there. Edge pixels
+    within `slack` px of ones the rest pose already touches do not count; `need` new ones do."""
+    grow = np.ones(2 * slack + 1)
+    new = 0
+    for side in (np.s_[:, :band], np.s_[:, -band:], np.s_[:band, :]):
+        axis = 0 if side[0] != slice(None) else 1
+        a = (alpha[side] > 16).any(axis=axis)
+        b = np.convolve((base[side] > 16).any(axis=axis), grow, mode='same') > 0
+        new += int((a & ~b).sum())
+    return new >= need
+
+
+def _record(m, plan, on_frame, finish, log, every_ms=400, settle=0.0):
+    """Runs plan = [(js or None, seconds)] on the Mascot m once its page is ready, handing the
+    alpha of a snapshot every `every_ms` (after `settle` s into a step) to on_frame(step, alpha);
+    then finish() and the Gtk main loop ends. A step without js gets one frame, at its end."""
+    st = {'step': -1, 'start': 0.0, 'until': 0.0, 'busy': False}
+
+    def snapped(view, res, step):
         st['busy'] = False
         try:
             a = surface_alpha(view.get_snapshot_finish(res))
         except (GLib.Error, cairo.Error) as e:
             log(f'piwnica-dashboard: snapshot failed: {e}')
             return
-        st['acc'] = a if st['acc'] is None or st['acc'].shape != a.shape else np.maximum(st['acc'], a)
-        st['frames'] += 1
+        on_frame(step, a)
 
     def tick():
         now = GLib.get_monotonic_time() / 1e6
@@ -283,21 +399,113 @@ def write_holdout(cfg, mon, out, log=print, every_ms=400):
             st['step'] += 1
             if st['step'] >= len(plan):
                 finish()
+                Gtk.main_quit()
                 return False
-            i, secs = plan[st['step']]
-            if i is not None:
-                m.js(f'mascot.play({i})')
-            st['until'] = now + secs
+            js, secs = plan[st['step']]
+            if js is not None:
+                m.js(js)
+            st['start'], st['until'] = now, now + secs
             return True
-        if not st['busy'] and (plan[st['step']][0] is not None or now >= st['until'] - every_ms / 1000):
+        if not st['busy'] and now >= st['start'] + settle and (
+                plan[st['step']][0] is not None or now >= st['until'] - every_ms / 1000):
             st['busy'] = True
             m.view.get_snapshot(WebKit2.SnapshotRegion.VISIBLE, WebKit2.SnapshotOptions.TRANSPARENT_BACKGROUND,
-                                None, snapped)
+                                None, snapped, st['step'])
         return True
 
     m.on_ready = lambda: GLib.timeout_add(every_ms, tick)
-    limit = 30 + sum(s for _i, s in plan) * 2
+    limit = 30 + sum(s for _js, s in plan) * 2
     GLib.timeout_add_seconds(int(limit), lambda: (log('piwnica-dashboard: the model did not load or got stuck'),
                                                   Gtk.main_quit()))
     Gtk.main()
+
+
+def _still(cfg, log):
+    """([mascot] with the acts off, paths) for a measuring run, or (None, None) with files missing."""
+    sec = dict(cfg['mascot'], acts=[])
+    paths, missing = files(sec)
+    if missing:
+        log(f'piwnica-dashboard: [mascot] files missing: {", ".join(missing)}')
+        return None, None
+    return sec, paths
+
+
+def write_holdout(cfg, mon, out, log=print, every_ms=400):
+    """Opens the character where `run` puts it, looking straight ahead, plays each Idle motion in
+    turn and saves the outline of all the frames together as a holdout PNG of the monitor's size.
+    0 on success."""
+    sec, paths = _still(cfg, log)
+    if sec is None:
+        return 1
+    m = Mascot(mon, sec, paths, log=log)
+    m.paused = True  # no cursor: the outline of the straight pose
+    # no Idle group: one frame after the idle fade-in, as before
+    idles = idle_plan(paths['model'], skip=idle_skip(paths['model'], sec))
+    plan = [(f'mascot.play({i})', secs) for i, secs in idles] or [(None, 2.5)]
+    st = {'code': 1, 'acc': None, 'frames': 0}
+
+    def frame(_step, a):
+        st['acc'] = a if st['acc'] is None or st['acc'].shape != a.shape else np.maximum(st['acc'], a)
+        st['frames'] += 1
+
+    def finish():
+        if st['acc'] is None:
+            log('piwnica-dashboard: no frame captured')
+            return
+        try:
+            write_alpha_png(holdout(st['acc'], m.rect, mon['w'], mon['h']), out)
+            log(f'piwnica-dashboard: holdout {mon["w"]}x{mon["h"]} from {st["frames"]} frames '
+                f'of {len(idles)} idle motion(s) -> {out}')
+            st['code'] = 0
+        except (cairo.Error, OSError) as e:
+            log(f'piwnica-dashboard: cannot write the holdout: {e}')
+
+    _record(m, plan, frame, finish, log, every_ms)
+    return st['code']
+
+
+def write_acts(cfg, mon, log=print, every_ms=400, cap=12.0):
+    """Plays every motion outside Idle where `run` puts the character and notes the ones the window
+    edge cuts off (is_clipped against the rest pose) in acts_cache_path(); acts() then leaves them
+    out. Takes about the length of all the motions together. 0 on success."""
+    sec, paths = _still(cfg, log)
+    if sec is None:
+        return 1
+    motions = act_motions(paths['model'], sec)
+    if not motions:
+        log('piwnica-dashboard: the model has no motions outside Idle')
+        return 1
+    m = Mascot(mon, sec, paths, log=log)
+    m.paused = True
+    # step 0, the rest pose to compare with: every frame of the first Idle motion (the hair sways)
+    plan = [('mascot.play(0)', 8.0)] + [(f'mascot.act({json.dumps(a["name"])})', max(1.0, min(cap, a['seconds'])) + 0.4)
+                                        for a in motions]
+    seen = {}
+
+    def frame(step, a):
+        seen[step] = a if step not in seen or seen[step].shape != a.shape else np.maximum(seen[step], a)
+
+    st = {'code': 1}
+
+    def finish():
+        if 0 not in seen or len(seen) < 2:
+            log('piwnica-dashboard: no frame captured')
+            return
+        clipped = sorted(a['name'] for i, a in enumerate(motions, 1)
+                         if i in seen and seen[i].shape == seen[0].shape and is_clipped(seen[i], seen[0]))
+        path = acts_cache_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump({**_acts_key(paths['model'], sec, m.rect[2:]), 'measured': len(seen) - 1,
+                           'clipped': clipped}, f, indent=1)
+        except OSError as e:
+            log(f'piwnica-dashboard: cannot write {path}: {e}')
+            return
+        log(f'piwnica-dashboard: {len(seen) - 1} motions measured, {len(clipped)} cut off by the window '
+            f'edge and left out: {", ".join(clipped) or "none"} -> {path}')
+        st['code'] = 0
+
+    # the first frames of a step still blend out of the motion before it
+    _record(m, plan, frame, finish, log, every_ms, settle=0.6)
     return st['code']

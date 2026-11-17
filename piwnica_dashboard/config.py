@@ -33,7 +33,9 @@ DEFAULTS = {
                'repos': ['afterlife', 'luneta', 'companion_app'],
                'interval': 30},
     'mascot': {'enabled': False, 'model': '', 'core': '', 'libs': '', 'rect': 'auto', 'fps': 24,
-               'zoom': 1.0, 'eyes': 0.2, 'reach': 700, 'fade': 0.0, 'idle_skip': []},
+               'zoom': 1.0, 'eyes': 0.2, 'reach': 700, 'fade': 0.0, 'idle_skip': [],
+               'acts': ['gesture', 'emote', 'dance', 'idle'], 'act_every': [20, 60], 'act_skip': [],
+               'act_catalog': '', 'act_log': False},
 }
 
 TEMPLATE = """\
@@ -214,6 +216,21 @@ reach = 700
 # Idle motions left out here, by file name without .motion3.json (e.g. ["hair_fix"]): a gesture that
 # reaches far to the side would make the holdout -- and so the gap between the panels -- much wider.
 idle_skip = []
+# Now and then the character does something by itself: a "gesture" or a longer "idle" (the model's
+# motion groups outside Idle), a "dance" (groups named dance*, looped a few times) or an "emote"
+# (one of its expressions, for a few seconds). [] = it only rests. Costs nothing extra: the same frames.
+acts = ["gesture", "emote", "dance", "idle"]
+# Shortest and longest pause between two of them, in seconds.
+act_every = [20, 60]
+# Motion groups and expressions never played, by name (with act_catalog also by tag, e.g. "combat").
+act_skip = []
+# Optional JSON describing the motions: {"main": {"model3": "...", "motions": {"<group>": {"category":
+# "gesture" | "dance" | "idle", "tags": [...], "face": false, "duration": 3.2}}}}. Without it the kind
+# comes from the group name. `piwnica-dashboard mascot-acts` plays them all once and leaves out the ones
+# the window edge would cut off (run it again after changing the model, rect or zoom).
+act_catalog = ""
+# Log every act ("mascot act gesture wave").
+act_log = false
 """
 
 

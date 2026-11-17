@@ -82,10 +82,116 @@ const say = (msg) => window.webkit?.messageHandlers?.mascot?.postMessage(msg);
       const k = Math.min(1, d / C.reach) / (d || 1);
       focus.focus(dx * k, -dy * k);
     },
-    pause(p) { p ? app.ticker.stop() : app.ticker.start(); },
+    pause(p) {
+      p ? app.ticker.stop() : app.ticker.start();
+      p ? rest() : plan();
+    },
     // mascot-holdout: play the i-th Idle motion now (priority FORCE) to catch every rest pose
-    play(i) { model.motion('Idle', i, 3); },
+    play(i) { model.motion('Idle', i, P.FORCE); },
+    // any motion group or expression of the model by name, now (mascot-acts, and to try one out)
+    act(name) {
+      if (groups[name]) return model.motion(name, 0, P.FORCE);
+      return Promise.resolve(emote(name, 6000));
+    },
   };
+
+  // [mascot] acts: now and then a gesture, a face or a dance instead of standing still. One timer
+  // between two acts and the frames the ticker draws anyway: nothing here runs per frame.
+  const A = C.acts || {};
+  const P = PIXI.live2d.MotionPriority;
+  const groups = model.internalModel.settings.motions || {};
+  const WEIGHT = { gesture: 5, emote: 3, idle: 2, dance: 1 };
+  const kinds = Object.keys(WEIGHT).filter((k) => (A[k] || []).length);
+  const plain = new Set(A.plain || []);
+  // faces that go with a motion which leaves the face alone
+  const cheer = ['happy', 'joy', 'amused', 'gentle', 'wink', 'sparkle', 'confident', 'calm', 'curious', 'warm']
+    .filter((n) => (A.emote || []).includes(n));
+  const rand = (lo, hi) => lo + Math.random() * (hi - lo);
+  const bags = {}; // per kind: every name once in random order before any comes again
+  const draw = (k) => {
+    if (!bags[k]?.length) {
+      bags[k] = [...A[k]].sort(() => Math.random() - 0.5);
+      if (bags[k].length > 1 && bags[k][bags[k].length - 1] === bags[k].last) bags[k].reverse();
+    }
+    return (bags[k].last = bags[k].pop());
+  };
+  let actT = null, faceT = null, cur = null; // cur = { name, left } while an act's motion plays
+
+  function emote(name, ms) {
+    const em = mm.expressionManager;
+    if (!em) return false;
+    model.expression(name);
+    clearTimeout(faceT);
+    faceT = setTimeout(() => em.resetExpression(), ms);
+    return true;
+  }
+  function rest() {
+    clearTimeout(actT);
+    clearTimeout(faceT);
+    actT = cur = null;
+    mm.expressionManager?.resetExpression();
+  }
+  function plan() {
+    clearTimeout(actT);
+    actT = kinds.length ? setTimeout(act, rand(A.every[0], A.every[1]) * 1000) : null;
+  }
+  function act() {
+    let r = Math.random() * kinds.reduce((sum, k) => sum + WEIGHT[k], 0);
+    const kind = kinds.find((k) => (r -= WEIGHT[k]) < 0) || kinds[0];
+    const name = draw(kind);
+    if (A.log) say(`act ${kind} ${name}`);
+    if (kind === 'emote') {
+      emote(name, rand(4000, 8000));
+      return plan();
+    }
+    cur = { name, left: kind === 'dance' ? Math.floor(rand(1, 4)) : 0 }; // a dance: 2 to 4 rounds
+    // should the motion never report its end (something else took over), the acts go on anyway
+    actT = setTimeout(() => { cur = null; plan(); }, 90000);
+    model.motion(name, 0, P.NORMAL).then((ok) => {
+      if (cur?.name !== name) return;
+      if (!ok) { cur = null; return plan(); }
+      // after the start: a motion above idle priority resets the face when it begins
+      if (plain.has(name) && cheer.length && Math.random() < 0.5) emote(cheer[Math.floor(Math.random() * cheer.length)], 5000);
+    });
+  }
+  // the act's motion ended: another round of the dance, or back to resting until the next act.
+  // (The library does not loop motions outside Idle and refuses to restart the one it still counts
+  // as playing, so the next round starts from a stopped manager, after this event.)
+  // A motion fades out before its parameters are back at rest, and the Idle motions never touch
+  // most of them: a sweat drop, an open mouth or half an eye variant would stay on the face. For a
+  // moment after a motion outside Idle ends, every parameter eases to its default (between loading
+  // and saving the parameters, so it lasts); the ones Idle animates are written over right after.
+  const core = model.internalModel.coreModel;
+  let easeUntil = 0;
+  const update = mm.update.bind(mm);
+  mm.update = (m, now) => {
+    if (easeUntil) {
+      const last = performance.now() >= easeUntil;
+      for (let i = 0; i < core.getParameterCount(); i++) {
+        const v = core.getParameterValueByIndex(i), d = core.getParameterDefaultValue(i);
+        if (v !== d) core.setParameterValueByIndex(i, last ? d : v + (d - v) * 0.25);
+      }
+      if (last) easeUntil = 0;
+    }
+    return update(m, now);
+  };
+  mm.on('motionFinish', () => {
+    if (mm.state.currentGroup !== mm.groups.idle) easeUntil = performance.now() + 600;
+    if (!cur || mm.state.currentGroup !== cur.name) return;
+    if (cur.left > 0) {
+      const { name } = cur;
+      cur.left -= 1;
+      setTimeout(() => {
+        if (cur?.name !== name) return;
+        mm.stopAllMotions();
+        model.motion(name, 0, P.FORCE);
+      }, 0);
+    } else {
+      cur = null;
+      plan();
+    }
+  });
+  plan();
   say(`ready ${Math.round(model.width)}x${Math.round(model.height)} eyes ${Math.round(eyeX)},${Math.round(eyeY)}`);
 })();
 </script>

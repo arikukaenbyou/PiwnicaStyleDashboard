@@ -212,6 +212,21 @@ piwnica-dashboard mascot-holdout ~/Pictures/wall/holdout-1200x1920.png
 The holdout covers every pose of the model's Idle motions. A rest gesture that reaches far to the side
 can be left out on the desktop (and out of the holdout) with `idle_skip = ["<motion file name>"]`.
 
+Between the rest motions the character does something by itself every 20 to 60 seconds (`act_every`):
+a gesture or a longer idle (the model's motion groups outside `Idle`), a dance (groups named `dance*`,
+looped a few times) or one of its expressions for a few seconds. `acts = []` turns that off, `acts =
+["gesture", "emote"]` keeps only those kinds and `act_skip = ["<name>"]` leaves single ones out. It costs
+no extra CPU: one timer, the same frames. The window is only as wide as `rect`, so a wide gesture would
+be cut off at its edge; this plays every motion once (a few minutes) and leaves out the ones that are:
+
+```sh
+piwnica-dashboard mascot-acts
+```
+
+Run it again after changing the model, `rect` or `zoom`. With `act_catalog = "<file>.json"` the kind,
+the length and the tags of each motion come from a description file (format in the config template)
+instead of the group names, and `act_skip` also takes tags. `act_log = true` logs every act.
+
 ### Health file (for a watcher)
 
 Every 10 s the running dashboard rewrites `$XDG_RUNTIME_DIR/piwnica-dashboard/health.json` (tmpfs): its pid,
@@ -274,5 +289,8 @@ kliknięcia i omija postać na tapecie (maska holdout).
 - **Postać Live2D:** `[mascot]` stawia model Live2D na monitorze dashboardu, a jego głowa i oczy podążają
   za kursorem. Potrzebne są `webkit2gtk-4.1` i własne pliki (model, Cubism Core, pixi). Żaden z nich nie jest
   w repo. Maskę holdout z sylwetki modelu zapisuje `piwnica-dashboard mascot-holdout <png>`.
+  Co 20–60 s (`act_every`) postać sama robi gest, minę albo taniec z ruchów i ekspresji modelu.
+  `acts = []` to wyłącza, `act_skip` pomija wybrane. `piwnica-dashboard mascot-acts` odtwarza każdy ruch raz
+  i odsiewa te, które krawędź okna by ucięła (powtórz po zmianie modelu, `rect` albo `zoom`).
 - **Własny układ:** `[layout."1200x1920"]` z `panel = [x, y, szer, wys]` przypina panele w danym miejscu.
   Miejsce, które dotyka postaci, wychodzi poza ekran albo nachodzi na inny panel, jest pomijane.
