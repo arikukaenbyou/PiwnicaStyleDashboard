@@ -227,6 +227,10 @@ Run it again after changing the model, `rect` or `zoom`. With `act_catalog = "<f
 the length and the tags of each motion come from a description file (format in the config template)
 instead of the group names, and `act_skip` also takes tags. `act_log = true` logs every act.
 
+A model wider than the gap between the panels (a long tail, say) can stand behind them: `holdout_hide =
+["<part id>"]` leaves those parts out of the outline `mascot-holdout` writes, so the panels keep their
+places, and `under_panels = true` shapes the character's window around the panels, so they show over it.
+
 ### Health file (for a watcher)
 
 Every 10 s the running dashboard rewrites `$XDG_RUNTIME_DIR/piwnica-dashboard/health.json` (tmpfs): its pid,
@@ -292,5 +296,7 @@ kliknięcia i omija postać na tapecie (maska holdout).
   Co 20–60 s (`act_every`) postać sama robi gest, minę albo taniec z ruchów i ekspresji modelu.
   `acts = []` to wyłącza, `act_skip` pomija wybrane. `piwnica-dashboard mascot-acts` odtwarza każdy ruch raz
   i odsiewa te, które krawędź okna by ucięła (powtórz po zmianie modelu, `rect` albo `zoom`).
+  Szeroką część modelu (np. ogon) można schować za panelami: `holdout_hide` pomija ją w masce układu,
+  a `under_panels = true` wycina panele z okna postaci.
 - **Własny układ:** `[layout."1200x1920"]` z `panel = [x, y, szer, wys]` przypina panele w danym miejscu.
   Miejsce, które dotyka postaci, wychodzi poza ekran albo nachodzi na inny panel, jest pomijane.

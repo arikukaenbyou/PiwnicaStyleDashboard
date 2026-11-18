@@ -150,6 +150,7 @@ class Mascot(Gtk.Window):
         self.add(self.view)
         self.view.load_html(page_html(paths, w, h, sec), 'file:///')
 
+        self.cut = []  # [x, y, w, h] in window pixels where the window shows nothing (set_cutouts)
         self.ready = False
         self.error = None  # the page's last "error: …" message (health.py reports it)
         self.on_ready = None
@@ -166,7 +167,18 @@ class Mascot(Gtk.Window):
         win = self.get_window()
         if win is not None:
             win.input_shape_combine_region(cairo.Region(), 0, 0)
+            if self.cut:
+                shown = cairo.Region(cairo.RectangleInt(0, 0, self.rect[2], self.rect[3]))
+                for x, y, w, h in self.cut:
+                    shown.subtract(cairo.RectangleInt(x, y, w, h))
+                win.shape_combine_region(shown, 0, 0)
         return False
+
+    def set_cutouts(self, panels):
+        """[mascot] under_panels: the dashboard panels ({name: (x, y, w, h)} on the monitor) show
+        through the character -- the window's own shape leaves them out, nothing is drawn twice."""
+        self.cut = cutouts(self.rect, panels)
+        self.click_through()
 
     def on_message(self, _ucm, result):
         msg = result.get_js_value().to_string()
@@ -204,6 +216,19 @@ class Mascot(Gtk.Window):
         else:
             self.show_all()
             self.click_through()
+
+
+def cutouts(rect, panels):
+    """The parts of the panels (x, y, w, h on the monitor) inside the window at rect = [x, y, w, h],
+    in window pixels."""
+    rx, ry, rw, rh = rect
+    out = []
+    for x, y, w, h in panels:
+        x0, y0 = max(x, rx), max(y, ry)
+        x1, y1 = min(x + w, rx + rw), min(y + h, ry + rh)
+        if x1 > x0 and y1 > y0:
+            out.append([x0 - rx, y0 - ry, x1 - x0, y1 - y0])
+    return out
 
 
 def idle_motions(model_path):
@@ -441,7 +466,8 @@ def write_holdout(cfg, mon, out, log=print, every_ms=400):
     m.paused = True  # no cursor: the outline of the straight pose
     # no Idle group: one frame after the idle fade-in, as before
     idles = idle_plan(paths['model'], skip=idle_skip(paths['model'], sec))
-    plan = [(f'mascot.play({i})', secs) for i, secs in idles] or [(None, 2.5)]
+    hide = f'mascot.hide({json.dumps([str(p) for p in sec.get("holdout_hide") or ()])});'
+    plan = [(f'{hide} mascot.play({i})', secs) for i, secs in idles] or [(hide, 2.5)]
     st = {'code': 1, 'acc': None, 'frames': 0}
 
     def frame(_step, a):

@@ -130,6 +130,10 @@ class App:
                   + (f', panels: {scene.dash.rects}' if scene.dash else ''), flush=True)
             self.boards.append(Board(m, scene))
         self.mascot = start_mascot(cfg, mons[dash_i]) if dash_i is not None else None
+        if self.mascot is not None and (cfg.get('mascot') or {}).get('under_panels'):
+            for b in self.boards:
+                if b.scene.dash is not None:
+                    self.mascot.set_cutouts(b.scene.dash.rects.values())
         self.paused = False
         self.dashboard_in_games = bool(disp.get('dashboard_in_games', True))
         fps = max(5, min(60, int(disp.get('fps', 30))))

@@ -64,6 +64,12 @@ class TestMascot(unittest.TestCase):
         self.assertIsNotNone(surf)
         self.assertEqual((mascot.surface_alpha(surf) > 0).sum(), 100)
 
+    def test_cutouts_are_the_panels_inside_the_window_in_window_pixels(self):
+        panels = [(20, 330, 340, 230), (0, 0, 50, 50), (780, 1690, 400, 210), (500, 1800, 10, 10)]
+        self.assertEqual(mascot.cutouts([100, 395, 1000, 1450], panels),
+                         [[0, 0, 260, 165], [680, 1295, 320, 155], [400, 1405, 10, 10]])
+        self.assertEqual(mascot.cutouts([100, 395, 1000, 1450], []), [])
+
     def test_page_gets_the_config_and_file_urls(self):
         html = mascot.page_html({'model': '/m/w.model3.json', 'core': '/c.js', 'pixi': '/p.js', 'cubism4': '/x.js'},
                                 500, 750, {'fps': 99, 'fade': 0.18})

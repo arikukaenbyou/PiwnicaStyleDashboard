@@ -88,12 +88,21 @@ const say = (msg) => window.webkit?.messageHandlers?.mascot?.postMessage(msg);
     },
     // mascot-holdout: play the i-th Idle motion now (priority FORCE) to catch every rest pose
     play(i) { model.motion('Idle', i, P.FORCE); },
+    // mascot-holdout: parts left out of the outline (e.g. a tail the panels may cover), by part id
+    hide(ids) {
+      hidden = ids.filter((id) => model.internalModel.coreModel.getPartIndex(id) >= 0);
+    },
     // any motion group or expression of the model by name, now (mascot-acts, and to try one out)
     act(name) {
       if (groups[name]) return model.motion(name, 0, P.FORCE);
       return Promise.resolve(emote(name, 6000));
     },
   };
+
+  let hidden = [];
+  model.internalModel.on('beforeModelUpdate', () => {
+    for (const id of hidden) model.internalModel.coreModel.setPartOpacityById(id, 0);
+  });
 
   // [mascot] acts: now and then a gesture, a face or a dance instead of standing still. One timer
   // between two acts and the frames the ticker draws anyway: nothing here runs per frame.

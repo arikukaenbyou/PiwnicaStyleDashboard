@@ -35,7 +35,7 @@ DEFAULTS = {
     'mascot': {'enabled': False, 'model': '', 'core': '', 'libs': '', 'rect': 'auto', 'fps': 24,
                'zoom': 1.0, 'eyes': 0.2, 'reach': 700, 'fade': 0.0, 'idle_skip': [],
                'acts': ['gesture', 'emote', 'dance', 'idle'], 'act_every': [20, 60], 'act_skip': [],
-               'act_catalog': '', 'act_log': False},
+               'act_catalog': '', 'act_log': False, 'holdout_hide': [], 'under_panels': False},
 }
 
 TEMPLATE = """\
@@ -231,6 +231,12 @@ act_skip = []
 act_catalog = ""
 # Log every act ("mascot act gesture wave").
 act_log = false
+# Model parts (cdi3 part ids, e.g. a wide tail) left out of the mascot-holdout outline: the panels may
+# then stand over them.
+holdout_hide = []
+# The dashboard panels show through the character wherever they overlap it (a tail, a wide gesture):
+# the character stands behind them instead of over them.
+under_panels = false
 """
 
 
