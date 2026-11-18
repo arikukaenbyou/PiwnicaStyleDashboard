@@ -9,7 +9,8 @@ its own .exe (Wow.exe) once it starts.
 """
 import os
 
-MARKERS = (b'SteamLaunch', b'lutris-wrapper', b'gamescope')
+# whole arguments (or their file name), never any substring: earlyoom's --avoid regex names gamescope too
+MARKERS = ('SteamLaunch', 'lutris-wrapper', 'gamescope')
 WINE_SERVICES = {
     'wineserver', 'wineboot.exe', 'services.exe', 'explorer.exe', 'winedevice.exe', 'plugplay.exe',
     'svchost.exe', 'rpcss.exe', 'conhost.exe', 'start.exe', 'rundll32.exe', 'tabtip.exe',
@@ -28,6 +29,16 @@ def lutris_launcher(cmd):
     return head.startswith('lutris-wrapper:') and head.split(':', 1)[1].strip().lower() in LUTRIS_LAUNCHERS
 
 
+def marked(cmd):
+    """True when one of the arguments is a launcher marker: `SteamLaunch`, `.../gamescope`,
+    `.../lutris-wrapper` or the renamed `lutris-wrapper: <game>`."""
+    for arg in cmd.split(b'\0'):
+        name = arg.decode(errors='ignore').rsplit('/', 1)[-1]
+        if name in MARKERS or name.startswith('lutris-wrapper:'):
+            return True
+    return False
+
+
 def game_running(proc='/proc'):
     try:
         pids = [p for p in os.listdir(proc) if p.isdigit()]
@@ -41,7 +52,7 @@ def game_running(proc='/proc'):
             continue
         if not cmd:
             continue
-        if any(m in cmd for m in MARKERS) and not lutris_launcher(cmd):
+        if marked(cmd) and not lutris_launcher(cmd):
             return True
         exe = cmd.split(b'\0', 1)[0].replace(b'\\', b'/').rsplit(b'/', 1)[-1].decode(errors='ignore').lower()
         if exe.endswith('.exe') and exe not in WINE_SERVICES:

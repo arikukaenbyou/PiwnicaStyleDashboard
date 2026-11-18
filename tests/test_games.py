@@ -31,6 +31,12 @@ class TestGames(unittest.TestCase):
     def test_wine_game_from_heroic(self):
         self.assertTrue(game_running(fake_proc(*DESKTOP, ['Z:\\games\\SomeGame\\Game-Win64-Shipping.exe'])))
 
+    def test_a_marker_inside_another_programs_argument_is_not_a_game(self):
+        # earlyoom keeps games alive with an --avoid regex that names gamescope: no game for that
+        earlyoom = ['/usr/bin/earlyoom', '-m', '5,3', '--avoid',
+                    '^([^ ]*[.](exe|ex|e)|wineserver|reaper|steam|gamescope|SteamLaunch|lutris-wrapper)$']
+        self.assertFalse(game_running(fake_proc(*DESKTOP, earlyoom)))
+
     def test_lutris_and_gamescope(self):
         self.assertTrue(game_running(fake_proc(*DESKTOP, ['/usr/bin/python3', '/usr/bin/lutris-wrapper', 'game'])))
         self.assertTrue(game_running(fake_proc(*DESKTOP, ['gamescope', '-f', '--', 'game'])))
