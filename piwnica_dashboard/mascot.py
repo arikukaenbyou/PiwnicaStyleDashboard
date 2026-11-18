@@ -35,6 +35,44 @@ except (ImportError, ValueError):  # webkit2gtk-4.1 not installed: the helpers b
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mascot.html')
 
 
+def act_path(env=os.environ):
+    """Where `piwnica-dashboard mascot-act` leaves a request for the running character."""
+    base = env.get('XDG_RUNTIME_DIR') or f'/tmp/piwnica-dashboard-{os.getuid()}'
+    return os.path.join(base, 'piwnica-dashboard', 'mascot-act')
+
+
+def request_act(names, path=None):
+    """Asks the running character to play these motions / expressions now (the motion first,
+    the faces right after it, since a motion resets the face when it starts)."""
+    path = path or act_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump([str(n) for n in names], f)
+    os.replace(tmp, path)
+
+
+def take_act(path=None):
+    """The pending request (and gone from disk), or [] without one or with a broken one."""
+    path = path or act_path()
+    try:
+        with open(path, encoding='utf-8') as f:
+            names = json.load(f)
+    except (OSError, ValueError):
+        return []
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return [str(n) for n in names] if isinstance(names, list) else []
+
+
+def act_js(names):
+    """JS playing names in turn, 0.4 s apart."""
+    return ' '.join(f'setTimeout(() => mascot.act({json.dumps(n)}), {i * 400});' for i, n in enumerate(names))
+
+
 def files(sec):
     """{'model', 'core', 'pixi', 'cubism4'} as absolute paths, or (None, what is missing)."""
     libs = os.path.expanduser(sec.get('libs', ''))
@@ -161,6 +199,7 @@ class Mascot(Gtk.Window):
         self.show_all()
         self.click_through()
         GLib.timeout_add(1000 // max(5, min(60, int(sec.get('fps', 30)))), self.poll)
+        GLib.timeout_add_seconds(1, self.poll_act)
 
     def click_through(self, *_):
         self.input_shape_combine_region(cairo.Region())
@@ -202,6 +241,15 @@ class Mascot(Gtk.Window):
         if pos != self.last:
             self.last = pos
             self.js(f'mascot.look({pos[0]},{pos[1]})')
+        return True
+
+    def poll_act(self):
+        """A `mascot-act` request: one stat a second when there is none."""
+        if self.ready and not self.paused and os.path.exists(act_path()):
+            names = take_act()
+            if names:
+                self.log(f'piwnica-dashboard: mascot asked to {" ".join(names)}')
+                self.js(act_js(names))
         return True
 
     def pause(self, p):

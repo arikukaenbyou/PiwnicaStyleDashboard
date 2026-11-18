@@ -310,6 +310,13 @@ def cmd_builds(cfg, as_json=False):
     return 0
 
 
+def cmd_mascot_act(args):
+    from .mascot import act_path, request_act
+    request_act(args.names)
+    print(f'piwnica-dashboard: asked the character to {" ".join(args.names)} ({act_path()})')
+    return 0
+
+
 def cmd_mascot(args, cfg):
     from . import mascot
     from .app import monitors
@@ -348,6 +355,8 @@ def main(argv=None):
     mh = sub.add_parser('mascot-holdout', help='save the [mascot] character outline as a holdout PNG')
     mh.add_argument('out')
     sub.add_parser('mascot-acts', help='play every [mascot] motion once and leave out the ones the window cuts off')
+    ma = sub.add_parser('mascot-act', help='the running character plays these motions/expressions now (e.g. heart_hands love)')
+    ma.add_argument('names', nargs='+')
     sc = sub.add_parser('screenshot', help='render one frame to a PNG (no window needed)')
     sc.add_argument('out')
     sc.add_argument('--size', default='1200x1920')
@@ -372,6 +381,8 @@ def main(argv=None):
         return cmd_claude(cfg, args.json)
     if args.cmd == 'builds':
         return cmd_builds(cfg, args.json)
+    if args.cmd == 'mascot-act':
+        return cmd_mascot_act(args)
     if args.cmd in ('mascot-holdout', 'mascot-acts'):
         return cmd_mascot(args, cfg)
     try:

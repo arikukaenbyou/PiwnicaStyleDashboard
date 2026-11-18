@@ -70,6 +70,20 @@ class TestMascot(unittest.TestCase):
                          [[0, 0, 260, 165], [680, 1295, 320, 155], [400, 1405, 10, 10]])
         self.assertEqual(mascot.cutouts([100, 395, 1000, 1450], []), [])
 
+    def test_an_act_request_is_taken_once(self):
+        path = os.path.join(tempfile.mkdtemp(), 'rt', 'mascot-act')
+        self.assertEqual(mascot.take_act(path), [])
+        mascot.request_act(['heart_hands', 'love'], path)
+        self.assertEqual(mascot.take_act(path), ['heart_hands', 'love'])
+        self.assertFalse(os.path.exists(path))
+        with open(path, 'w') as f:
+            f.write('{broken')
+        self.assertEqual(mascot.take_act(path), [])
+        self.assertFalse(os.path.exists(path))
+        self.assertEqual(mascot.act_js(['a', 'b"c']),
+                         'setTimeout(() => mascot.act("a"), 0); setTimeout(() => mascot.act("b\\"c"), 400);')
+        self.assertTrue(mascot.act_path({'XDG_RUNTIME_DIR': '/run/user/7'}).startswith('/run/user/7/piwnica-dashboard/'))
+
     def test_page_gets_the_config_and_file_urls(self):
         html = mascot.page_html({'model': '/m/w.model3.json', 'core': '/c.js', 'pixi': '/p.js', 'cubism4': '/x.js'},
                                 500, 750, {'fps': 99, 'fade': 0.18})

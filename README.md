@@ -231,6 +231,9 @@ A model wider than the gap between the panels (a long tail, say) can stand behin
 ["<part id>"]` leaves those parts out of the outline `mascot-holdout` writes, so the panels keep their
 places, and `under_panels = true` shapes the character's window around the panels, so they show over it.
 
+`piwnica-dashboard mascot-act heart_hands love` makes the running character play those motions and
+expressions now, in turn (any motion group or expression name of the model).
+
 ### Health file (for a watcher)
 
 Every 10 s the running dashboard rewrites `$XDG_RUNTIME_DIR/piwnica-dashboard/health.json` (tmpfs): its pid,
