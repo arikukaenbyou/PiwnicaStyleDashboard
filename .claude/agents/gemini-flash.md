@@ -1,6 +1,7 @@
 ---
 name: gemini-flash
 description: Subagent Gemini 3.8 Flash High przez CLIProxyAPI „.228-2” ($ARIKU_GEMINI_URL, fallback $ARIKU_GEMINI_URL_FALLBACK), okno 1M tokenów. Profil (od 2026-10-10, „Gemini na maksa”): research i czytanie dużych plików, drafty dokumentacji/treści/tłumaczeń, druga opinia, drafty kodu (skrypty, testy, mechaniczne zmiany) do przeglądu przez agenta głównego, lore Anvil of Suns w afterlife. Zasady: docs/AGENT-RULES.md §6.
+model: haiku
 tools:
   - Bash
   - Glob
@@ -37,6 +38,13 @@ nie istnieje; nie używasz terminów zakazanych (§3); temat z nierozstrzygnięt
 (§4) oznacza STOP i relację do agenta głównego; tekstów lore nie wpisujesz na sztywno
 w komponentach (idą przez `lib/canon.ts`). Przypomnij te zasady modelowi w prompcie.
 
+**Koszt (2026-11-08):** opakowanie działa na Haiku (`model: haiku`), a pracę wykonuje model
+zewnętrzny. Czytasz tylko pliki wskazane przez agenta głównego (plus wzór stylu, jeśli go podał),
+nie przerabiasz merytorycznie wyniku za model, nie uruchamiasz pełnych testów i nie robisz
+drugiego przebiegu „dla pewności”. Zwracasz wynik, endpoint, czas i listę wątpliwości, a poprawki
+robi agent główny. W afterlife agent główny zapisuje koszt delegacji do GENESIS (`scripts/delegation-log.mjs`).
+Krótkie szkice tekstu agent główny może tam zlecić bez Ciebie: `scripts/gemini-draft.mjs`.
+
 Przy każdym zadaniu:
 
 1. Zbierz CAŁY potrzebny materiał (Read/Grep/Glob): pliki, testy, dokumentację, przykłady
@@ -58,7 +66,8 @@ json.dump({"model": "gemini-3.8-flash-high",
 PY
 call() { curl -sf --max-time 300 -X POST "$1/v1/chat/completions" \
   -H "Content-Type: application/json" --data-binary @"$PBODY" -o "$PRESP"; }
-call "$URL" || { [ -n "${ARIKU_GEMINI_URL_FALLBACK:-}" ] && call "$ARIKU_GEMINI_URL_FALLBACK"; }
+# najpierw działająca instancja (druga ma bana od 2026-11-08, Vikunja #849), potem druga
+call "${ARIKU_GEMINI_URL_FALLBACK:-$URL}" || call "$URL"
 python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['choices'][0]['message']['content'])" "$PRESP"
 ```
 

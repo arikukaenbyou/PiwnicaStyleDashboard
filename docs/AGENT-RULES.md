@@ -35,6 +35,11 @@ Piszesz po polsku.
 6. **Niejasność:** najwyżej 3 konkretne pytania, potem najrozsądniejszy wariant z uzasadnieniem.
 7. **Błąd:** nie zmieniaj podejścia na ślepo. Przeczytaj log, postaw hipotezę, zaproponuj jedną
    weryfikację i dopiero potem poprawkę. Najpierw przyczyna, zakres i skutki uboczne.
+8. **Higiena sesji (audyt 2026-11-21).** Jedna sesja to jeden etap pracy. Po skończonym etapie
+   (wdrożenie, zamknięte zadanie) i po przerwie dłuższej niż godzina przy dużym kontekście
+   zaczynasz nową sesję albo robisz `/compact`. Przedtem zapisujesz stan w wątku genesis
+   (`genesis topic note`). Wznowienie starej rozmowy po wygaśnięciu cache wczytuje cały kontekst
+   od nowa. W tygodniu audytu kosztowało to prawie połowę tokenów zapisu cache.
 
 ## 3. Zasady techniczne
 
@@ -115,3 +120,30 @@ subagent `gemini-flash` (`.claude/agents/gemini-flash.md`).
   sekretów w historii.
 - Szczegóły procesu (branche, wersje, CI, wydania) są w `CLAUDE.md` albo `docs/WORKFLOW.md`
   danego repo.
+
+## 8. Jedna kolejka (decyzja właściciela 2026-11-15)
+
+Po audycie z 2026-11-15: tematy uciekały, bo stan pracy leżał naraz w kilku rejestrach i żaden nie był
+jego właścicielem. Od teraz każdy rodzaj rzeczy ma jedno miejsce:
+
+- **Zadanie = Vikunja.** To jedyna kolejka pracy. Praca odłożona, przekazana albo czekająca na decyzję ma tam
+  zadanie z opisem. Zadanie zamykasz dopiero, gdy jest na produkcji i sprawdzone, a nie gdy powstał kod.
+- **Temat genesis = dziennik sesji.** Zapisujesz w nim, co zrobiłeś i na czym stoisz. Nie trzymasz tam listy
+  rzeczy do zrobienia.
+- **Koniec wątku = streszczenie** (od 2026-11-19, Vikunja #924). Zamykasz wątek trzema krótkimi polami:
+  `genesis topic close <wątek> "co zrobione" --open "co otwarte" --waiting "na co czeka"`. Trafia to trwale do
+  Genesis i do doradcy w Companionie; skrót z gita (commity, pliki) dokłada hook sam. Piszesz kilka zdań o pracy
+  z numerami zadań w Vikunji, a nie zapis rozmowy. Bez sekretów, tokenów, adresów, danych osób, zrzutów ekranu
+  i treści plików. Serwer odrzuca pola spoza kontraktu i maskuje oczywiste sekrety, ale to tylko siatka.
+- **Historia rozmów idzie do Genesis** (decyzja właściciela 2026-11-19, „zapisujemy rozmowy”; wcześniej
+  zakazane). Hook `genesis historia` wysyła trwale do Lemurii prompty właściciela i tekstowe odpowiedzi modelu
+  (do 20 000 znaków na wpis) z nazwami użytych narzędzi. Nigdy: wyników narzędzi, treści plików, myślenia modelu,
+  obrazów, rozmów subagentów. Z katalogów z `GENESIS_SKIP_DIRS` nie idzie nic. Sekrety maskuje filtr na
+  komputerze i na serwerze, ale w rozmowie nadal ich nie wklejasz. Usuwanie: `genesis history delete`.
+  Szczegóły: `docs/COMPANION_CONTRACT.md` §14.4.
+- **Markdown = opis, nie stan.** `PROJECT_*.md`, handoffy i plany opisują, jak coś działa i co ustalono.
+  Otwarte punkty z takiego pliku przenosisz do Vikunji i zostawiasz w pliku numer zadania.
+- **Obraz = zlecenie w kolejce obrazów**, a nie notatka w dokumencie. Do czasu API kolejki (Vikunja #1018)
+  zlecenie to zadanie w Vikunji z promptem i miejscem użycia.
+- **Przekazanie między hostami = agent-tasks**, a nie plik na udziale ani w katalogu planów. Gdy host nie ma
+  agent-tasks, przekazanie idzie przez Vikunję z prefiksem hosta w tytule, np. `[felix-pc]`.
