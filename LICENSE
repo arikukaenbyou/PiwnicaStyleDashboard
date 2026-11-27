@@ -19,3 +19,46 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+CHARACTERS AND ARTWORK ARE NOT COVERED BY THE MIT LICENCE
+
+The MIT licence above covers the source code only. It grants no rights to any
+character, name, likeness or artwork.
+
+1. Wise One. The character "Wise One" (her name, likeness, design, artwork,
+   Live2D model, motions, voice and persona) is (c) 2026 ariku, all rights
+   reserved. None of it ships in this repository. Without the owner's prior
+   written permission you may not use, copy, modify, redistribute or imitate
+   Wise One or her likeness, including in forks or derivative works of this
+   software, and you may not present a fork as featuring Wise One.
+
+2. Permission for MlodyVerter. MlodyVerter (account "verter" on git.ariku.pl)
+   may fork and modify the code of this software and use it with his own
+   character Fox Girl in place of the author's character. Fox Girl and her
+   artwork belong to MlodyVerter; this licence grants nobody else any rights
+   to them. This permission does not extend to Wise One.
+
+3. The example wallpaper in examples/orin has its own note there.
+
+--------------------------------------------------------------------------------
+
+POSTACIE I GRAFIKI NIE SA OBJETE LICENCJA MIT (PL)
+
+Licencja MIT dotyczy wylacznie kodu. Nie daje zadnych praw do postaci, imion,
+wizerunku ani grafik.
+
+1. Wise One. Postac "Wise One" (imie, wizerunek, projekt, grafiki, model
+   Live2D, ruchy, glos i persona) (c) 2026 ariku, wszelkie prawa zastrzezone.
+   Nie ma jej w tym repozytorium. Bez wczesniejszej pisemnej zgody wlasciciela
+   nie wolno jej uzywac, kopiowac, przerabiac, rozpowszechniac ani nasladowac,
+   rowniez w forkach i utworach zaleznych, ani przedstawiac forka jako
+   zawierajacego Wise One.
+
+2. Zgoda dla MlodegoVertera. MlodyVerter (konto "verter" na git.ariku.pl) moze
+   forkowac i modyfikowac kod tego programu i uzywac go ze swoja postacia Fox
+   Girl zamiast postaci autora. Fox Girl i jej grafiki naleza do MlodegoVertera;
+   ta licencja nie daje do nich praw nikomu innemu. Zgoda nie obejmuje Wise One.
+
+3. Przykladowa tapeta w examples/orin ma wlasna notke w tamtym katalogu.

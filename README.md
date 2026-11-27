@@ -253,7 +253,10 @@ frame (nothing is drawn over the character). CI runs them in an Arch Linux conta
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE). The example wallpaper has its own note in [examples/orin](examples/orin/README.md).
+MIT for the code, see [LICENSE](LICENSE). Characters and artwork are not covered: the author's character
+**Wise One** (name, likeness, artwork, Live2D model) is all rights reserved, is not in this repository and may not
+be used in forks without written permission. MłodyVerter may fork the code and use it with his own character
+Fox Girl. The example wallpaper has its own note in [examples/orin](examples/orin/README.md).
 
 ---
 
@@ -303,3 +306,6 @@ kliknięcia i omija postać na tapecie (maska holdout).
   a `under_panels = true` wycina panele z okna postaci.
 - **Własny układ:** `[layout."1200x1920"]` z `panel = [x, y, szer, wys]` przypina panele w danym miejscu.
   Miejsce, które dotyka postaci, wychodzi poza ekran albo nachodzi na inny panel, jest pomijane.
+- **Licencja:** MIT tylko dla kodu. Postać **Wise One** (imię, wizerunek, grafiki, model Live2D) jest chroniona,
+nie ma jej w repo i nie wolno jej używać w forkach bez pisemnej zgody. MłodyVerter może forkować kod i używać go
+ze swoją postacią Fox Girl. Szczegóły w [LICENSE](LICENSE).
